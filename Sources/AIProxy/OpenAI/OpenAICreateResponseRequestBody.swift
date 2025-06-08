@@ -110,6 +110,8 @@ extension OpenAICreateResponseRequestBody {
 
     public enum ItemOrMessage: Encodable {
         case message(role: Role, content: Content)
+        case functionCallOutput(callId: String, output: String)
+        case functionCall(id: String, name: String, arguments: String)
 
         private struct _Message: Encodable {
             let role: Role
@@ -129,11 +131,54 @@ extension OpenAICreateResponseRequestBody {
             }
         }
 
+        private struct _FunctionCallOutput: Encodable {
+            let callId: String
+            let output: String
+
+            private enum CodingKeys: String, CodingKey {
+                case type
+                case callId = "call_id"
+                case output
+            }
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode("function_call_output", forKey: .type)
+                try container.encode(self.callId, forKey: .callId)
+                try container.encode(self.output, forKey: .output)
+            }
+        }
+
+        private struct _FunctionCall: Encodable {
+            let id: String
+            let name: String
+            let arguments: String
+
+            private enum CodingKeys: String, CodingKey {
+                case type
+                case id = "call_id"
+                case name
+                case arguments
+            }
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode("function_call", forKey: .type)
+                try container.encode(self.id, forKey: .id)
+                try container.encode(self.name, forKey: .name)
+                try container.encode(self.arguments, forKey: .arguments)
+            }
+        }
+
         public func encode(to encoder: any Encoder) throws {
             var container = encoder.singleValueContainer()
             switch self {
-            case .message(role: let role, content: let content):
+            case .message(let role, let content):
                 try container.encode(_Message(role: role, content: content))
+            case .functionCallOutput(let callId, let output):
+                try container.encode(_FunctionCallOutput(callId: callId, output: output))
+            case .functionCall(let id, let name, let arguments):
+                try container.encode(_FunctionCall(id: id, name: name, arguments: arguments))
             }
         }
     }
