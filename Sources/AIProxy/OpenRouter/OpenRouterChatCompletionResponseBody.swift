@@ -34,7 +34,7 @@ public struct OpenRouterChatCompletionResponseBody: Decodable {
         case provider
         case usage
     }
-    
+
     public init(choices: [Choice], created: Int?, id: String?, model: String?, provider: String?, usage: Usage?) {
         self.choices = choices
         self.created = created
@@ -62,7 +62,7 @@ extension OpenRouterChatCompletionResponseBody {
             case promptTokens = "prompt_tokens"
             case totalTokens = "total_tokens"
         }
-        
+
         public init(completionTokens: Int?, promptTokens: Int?, totalTokens: Int?) {
             self.completionTokens = completionTokens
             self.promptTokens = promptTokens
@@ -91,7 +91,7 @@ extension OpenRouterChatCompletionResponseBody {
             case message
             case nativeFinishReason = "native_finish_reason"
         }
-        
+
         public init(finishReason: String?, message: Message, nativeFinishReason: String?) {
             self.finishReason = finishReason
             self.message = message
@@ -102,6 +102,9 @@ extension OpenRouterChatCompletionResponseBody {
 
 extension OpenRouterChatCompletionResponseBody.Choice {
     public struct Message: Decodable {
+        /// Web search annotations when using online models (e.g., "model:online")
+        public let annotations: [Annotation]?
+
         /// The contents of the message.
         public let content: String?
 
@@ -115,17 +118,84 @@ extension OpenRouterChatCompletionResponseBody.Choice {
         public let toolCalls: [ToolCall]?
 
         private enum CodingKeys: String, CodingKey {
+            case annotations
             case content
             case reasoning
             case role
             case toolCalls = "tool_calls"
         }
-        
-        public init(content: String?, reasoning: String?, role: String?, toolCalls: [ToolCall]?) {
+
+        public init(
+            annotations: [Annotation]? = nil,
+            content: String? = nil,
+            reasoning: String? = nil,
+            role: String? = nil,
+            toolCalls: [ToolCall]? = nil
+        ) {
+            self.annotations = annotations
             self.content = content
             self.reasoning = reasoning
             self.role = role
             self.toolCalls = toolCalls
+        }
+    }
+}
+
+// MARK: - ResponseBody.Choice.Message.Annotation
+extension OpenRouterChatCompletionResponseBody.Choice.Message {
+    /// https://platform.openai.com/docs/api-reference/chat/object#chat/object-choices-message-annotations
+    public struct Annotation: Decodable {
+        /// URL citation information when type is "url_citation"
+        public let urlCitation: URLCitation?
+
+        private enum CodingKeys: String, CodingKey {
+            case urlCitation = "url_citation"
+        }
+
+        public init(urlCitation: URLCitation?) {
+            self.urlCitation = urlCitation
+        }
+    }
+}
+
+// MARK: - ResponseBody.Choice.Message.URLCitation
+extension OpenRouterChatCompletionResponseBody.Choice.Message {
+    public struct URLCitation: Decodable {
+        /// Content snippet from the web page
+        public let content: String?
+
+        /// End index in the response where this citation applies
+        public let endIndex: Int?
+
+        /// Start index in the response where this citation applies
+        public let startIndex: Int?
+
+        /// The title of the web page
+        public let title: String?
+
+        /// The URL of the web source
+        public let url: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case content
+            case endIndex = "end_index"
+            case startIndex = "start_index"
+            case title
+            case url
+        }
+
+        public init(
+            content: String? = nil,
+            endIndex: Int? = nil,
+            startIndex: Int? = nil,
+            title: String? = nil,
+            url: String? = nil
+        ) {
+            self.content = content
+            self.endIndex = endIndex
+            self.startIndex = startIndex
+            self.title = title
+            self.url = url
         }
     }
 }
@@ -142,7 +212,7 @@ extension OpenRouterChatCompletionResponseBody.Choice.Message {
 
         /// The type of the tool. Currently, only `function` is supported.
         public let type: String?
-        
+
         public init(function: Function?, id: String?, index: Int?, type: String?) {
             self.function = function
             self.id = id

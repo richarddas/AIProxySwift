@@ -34,6 +34,13 @@ public struct OpenAIChatCompletionRequestBody: Encodable {
     /// Defaults to false
     public let logprobs: Bool?
 
+    /// This field is deprecated by OpenAI, but is useful for other providers.
+    /// Here is OpenAI's note:
+    /// The maximum number of tokens that can be generated in the chat completion.
+    /// This value can be used to control costs for text generated via API.
+    /// This value is now deprecated in favor of maxCompletionTokens, and is not compatible with o-series models.
+    public let maxTokens: Int?
+
     /// An upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens: https://platform.openai.com/docs/guides/reasoning
     public let maxCompletionTokens: Int?
 
@@ -113,7 +120,7 @@ public struct OpenAIChatCompletionRequestBody: Encodable {
     /// This tool searches the web for relevant results to use in a response.
     /// Learn more: https://platform.openai.com/docs/guides/tools-web-search?api-mode=chat
     public let webSearchOptions: OpenAIChatCompletionRequestBody.WebSearchOptions?
-    
+
     private enum CodingKeys: String, CodingKey {
         case model
         case messages
@@ -122,6 +129,7 @@ public struct OpenAIChatCompletionRequestBody: Encodable {
         case frequencyPenalty = "frequency_penalty"
         case logitBias = "logit_bias"
         case logprobs
+        case maxTokens = "max_tokens"
         case maxCompletionTokens = "max_completion_tokens"
         case metadata
         case n
@@ -151,6 +159,7 @@ public struct OpenAIChatCompletionRequestBody: Encodable {
         frequencyPenalty: Double? = nil,
         logitBias: [String : Double]? = nil,
         logprobs: Bool? = nil,
+        maxTokens: Int? = nil,
         maxCompletionTokens: Int? = nil,
         metadata: [String : AIProxyJSONValue]? = nil,
         n: Int? = nil,
@@ -175,6 +184,7 @@ public struct OpenAIChatCompletionRequestBody: Encodable {
         self.frequencyPenalty = frequencyPenalty
         self.logitBias = logitBias
         self.logprobs = logprobs
+        self.maxTokens = maxTokens
         self.maxCompletionTokens = maxCompletionTokens
         self.metadata = metadata
         self.n = n
@@ -548,6 +558,28 @@ extension OpenAIChatCompletionRequestBody {
             strict: Bool?
         )
 
+        case webSearch
+
+        /// Represents a Model Context Provider (MCP) tool integration.
+        ///
+        /// - Parameters:
+        ///   - serverLabel: A label identifying this external server.
+        ///   - serverUrl: The URL of the MCP server.
+        ///   - requireApproval: Whether calls to this tool require approval (`auto`, `manual`, or `never`).
+        ///   - allowedTools: (Optional) A list of tool names that are allowed to run on this MCP.
+        case mcp(
+            serverLabel: String,
+            serverUrl: String,
+            requireApproval: RequireApproval,
+            allowedTools: [String]? = nil
+        )
+
+        public enum RequireApproval: String, Codable {
+            case auto
+            case manual
+            case never
+        }
+
         private enum RootKey: CodingKey {
             case type
             case function
@@ -560,15 +592,23 @@ extension OpenAIChatCompletionRequestBody {
             case strict
         }
 
+        private enum MCPKey: String, CodingKey {
+            case type
+            case serverLabel = "server_label"
+            case serverUrl = "server_url"
+            case requireApproval = "require_approval"
+            case allowedTools = "allowed_tools"
+        }
+
         public func encode(to encoder: any Encoder) throws {
-            var container = encoder.container(keyedBy: RootKey.self)
             switch self {
             case .function(
-                name: let name,
-                description: let description,
-                parameters: let parameters,
-                strict: let strict
+                let name,
+                let description,
+                let parameters,
+                let strict
             ):
+                var container = encoder.container(keyedBy: RootKey.self)
                 try container.encode("function", forKey: .type)
                 var functionContainer = container.nestedContainer(
                     keyedBy: FunctionKey.self,
@@ -578,6 +618,23 @@ extension OpenAIChatCompletionRequestBody {
                 try functionContainer.encodeIfPresent(description, forKey: .description)
                 try functionContainer.encodeIfPresent(parameters, forKey: .parameters)
                 try functionContainer.encodeIfPresent(strict, forKey: .strict)
+
+            case .webSearch:
+                var container = encoder.container(keyedBy: RootKey.self)
+                try container.encode("web_search_preview", forKey: .type)
+
+            case .mcp(
+                let serverLabel,
+                let serverUrl,
+                let requireApproval,
+                let allowedTools
+            ):
+                var container = encoder.container(keyedBy: MCPKey.self)
+                try container.encode("mcp", forKey: .type)
+                try container.encode(serverLabel, forKey: .serverLabel)
+                try container.encode(serverUrl, forKey: .serverUrl)
+                try container.encode(requireApproval, forKey: .requireApproval)
+                try container.encodeIfPresent(allowedTools, forKey: .allowedTools)
             }
         }
     }
@@ -637,22 +694,22 @@ extension OpenAIChatCompletionRequestBody {
 
 extension OpenAIChatCompletionRequestBody {
     public struct WebSearchOptions: Encodable {
-        
+
         public enum SearchContextSize: String, Encodable {
             case low
             case medium
             case high
         }
-        
+
         public struct UserLocation: Encodable {
-            
+
             public struct Approximate: Encodable {
                 let city: String?
                 let country: String?
                 let region: String?
                 let timezone: String?
                 let type = "approximate"
-                
+
                 public init(
                     city: String? = nil,
                     country: String? = nil,
@@ -665,22 +722,22 @@ extension OpenAIChatCompletionRequestBody {
                     self.timezone = timezone
                 }
             }
-            
+
             let approximate: Approximate
-            
+
             public init(approximate: Approximate) {
                 self.approximate = approximate
             }
         }
-        
+
         let searchContextSize: SearchContextSize?
         let userLocation: UserLocation?
-        
+
         private enum CodingKeys: String, CodingKey {
             case searchContextSize = "search_context_size"
             case userLocation = "user_location"
         }
-        
+
         public init(
             searchContextSize: SearchContextSize?,
             userLocation: UserLocation?

@@ -66,10 +66,12 @@ public protocol OpenAIService {
     /// - Parameters:
     ///   - body: The request body to send to aiproxy and openai. See this reference:
     ///           https://platform.openai.com/docs/api-reference/audio/createTranscription
+    ///   - progressCallback: Optional callback to track upload progress. Called with a value between 0.0 and 1.0
     /// - Returns: An transcription response. See this reference:
     ///            https://platform.openai.com/docs/api-reference/audio/json-object
     func createTranscriptionRequest(
-        body: OpenAICreateTranscriptionRequestBody
+        body: OpenAICreateTranscriptionRequestBody,
+        progressCallback: ((Double) -> Void)?
     ) async throws -> OpenAICreateTranscriptionResponseBody
     
     /// Initiates a create text to speech request to v1/audio/speech
@@ -152,6 +154,19 @@ public protocol OpenAIService {
     func createResponse(
         requestBody: OpenAICreateResponseRequestBody
     ) async throws -> OpenAIResponse
+    
+    /// Creates a streaming 'response' using OpenAI's new API product:
+    ///
+    /// - Parameters:
+    ///   - requestBody: The request body to send to OpenAI. See this reference:
+    ///                  https://platform.openai.com/docs/api-reference/responses/create
+    ///   - secondsToWait: The amount of time to wait before `URLError.timedOut` is raised
+    /// - Returns: An async sequence of response chunks. See this reference:
+    ///            https://platform.openai.com/docs/api-reference/responses/streaming
+    func createStreamingResponse(
+        requestBody: OpenAICreateResponseRequestBody,
+        secondsToWait: UInt
+    ) async throws -> AsyncCompactMapSequence<AsyncLineSequence<URLSession.AsyncBytes>, OpenAIResponseStreamingChunk>
 }
 
 extension OpenAIService {
@@ -165,5 +180,17 @@ extension OpenAIService {
         body: OpenAIChatCompletionRequestBody
     ) async throws -> AsyncCompactMapSequence<AsyncLineSequence<URLSession.AsyncBytes>, OpenAIChatCompletionChunk> {
         return try await self.streamingChatCompletionRequest(body: body, secondsToWait: 60)
+    }
+    
+    public func createTranscriptionRequest(
+        body: OpenAICreateTranscriptionRequestBody
+    ) async throws -> OpenAICreateTranscriptionResponseBody {
+        return try await self.createTranscriptionRequest(body: body, progressCallback: nil)
+    }
+    
+    public func createStreamingResponse(
+        requestBody: OpenAICreateResponseRequestBody
+    ) async throws -> AsyncCompactMapSequence<AsyncLineSequence<URLSession.AsyncBytes>, OpenAIResponseStreamingChunk> {
+        return try await self.createStreamingResponse(requestBody: requestBody, secondsToWait: 60)
     }
 }

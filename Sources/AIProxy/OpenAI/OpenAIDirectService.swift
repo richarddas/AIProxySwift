@@ -144,7 +144,8 @@ open class OpenAIDirectService: OpenAIService, DirectService {
     /// - Returns: An transcription response. See this reference:
     ///            https://platform.openai.com/docs/api-reference/audio/json-object
     public func createTranscriptionRequest(
-        body: OpenAICreateTranscriptionRequestBody
+        body: OpenAICreateTranscriptionRequestBody,
+        progressCallback: ((Double) -> Void)?
     ) async throws -> OpenAICreateTranscriptionResponseBody {
         let boundary = UUID().uuidString
         let request = try AIProxyURLRequest.createDirect(
@@ -160,8 +161,12 @@ open class OpenAIDirectService: OpenAIService, DirectService {
         )
         let (data, _) = try await BackgroundNetworker.makeRequestAndWaitForData(
             self.urlSession,
-            request
+            request,
+            progressCallback
         )
+        if progressCallback != nil {
+                  logIf(.error)?.error("progressCallback for transcription is not implemented")
+        }
         if body.responseFormat == "text" {
             guard let text = String(data: data, encoding: .utf8) else {
                 throw AIProxyError.assertion("Could not represent OpenAI's whisper response as string")
@@ -339,6 +344,35 @@ open class OpenAIDirectService: OpenAIService, DirectService {
         )
         return try await self.makeRequestAndDeserializeResponse(request)
     }
+    
+    /// Creates a streaming 'response' using OpenAI's new API product:
+    /// https://platform.openai.com/docs/api-reference/responses/streaming
+    /// 
+    /// - Parameters:
+    ///   - requestBody: The request body to send to OpenAI. See this reference:
+    ///                  https://platform.openai.com/docs/api-reference/responses/create
+    ///   - secondsToWait: The amount of time to wait before `URLError.timedOut` is raised
+    /// - Returns: An async sequence of response chunks. See this reference:
+    ///            https://platform.openai.com/docs/api-reference/responses/streaming
+    public func createStreamingResponse(
+        requestBody: OpenAICreateResponseRequestBody,
+        secondsToWait: UInt
+    ) async throws -> AsyncCompactMapSequence<AsyncLineSequence<URLSession.AsyncBytes>, OpenAIResponseStreamingChunk> {
+        var requestBody = requestBody
+        requestBody.stream = true
+        let request = try AIProxyURLRequest.createDirect(
+            baseURL: self.baseURL,
+            path: self.resolvedPath("responses"),
+            body: try requestBody.serialize(),
+            verb: .post,
+            secondsToWait: secondsToWait,
+            contentType: "application/json",
+            additionalHeaders: [
+                "Authorization": "Bearer \(self.unprotectedAPIKey)"
+            ]
+        )
+        return try await self.makeRequestAndDeserializeStreamingChunks(request)
+    }
 
     private func resolvedPath(_ common: String) -> String {
         assert(common[common.startIndex] != "/")
@@ -347,6 +381,8 @@ open class OpenAIDirectService: OpenAIService, DirectService {
             return "/v1/\(common)"
         case .azureDeployment(let apiVersion):
             return "/\(common)?api-version=\(apiVersion)"
+        case .noVersionPrefix:
+            return "/\(common)"
         }
     }
 }

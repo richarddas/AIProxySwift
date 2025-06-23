@@ -8,7 +8,7 @@ import UIKit
 public enum AIProxy {
 
     /// The current sdk version
-    public static let sdkVersion = "0.101.1"
+    public static let sdkVersion = "0.111.0"
 
     /// Configures the AIProxy SDK. Call this during app launch by adding an `init` to your SwiftUI MyApp.swift file, e.g.
     ///
@@ -74,6 +74,9 @@ public enum AIProxy {
     ///                              4. Tap the plus sign next to 'Capability'
     ///                              5. Add iCloud
     ///                              6. Select the 'Key-value storage' service
+    ///
+    ///                          If possible, StoreKit's appTransactionID will be used as the stable ID.
+    ///                          If the app store receipt cannot be verified then we fall back to a GUID synced across iCloud-backed keychain and UKVS.
     public static func configure(
         logLevel: AIProxyLogLevel,
         printRequestBodies: Bool,
@@ -111,7 +114,7 @@ public enum AIProxy {
     ///    kdig @1.1.1.1 api.aiproxy.com +noall +stats
     public static var resolveDNSOverTLS = true
 
-    public static var stableID: String? {
+    public private(set) static var stableID: String? {
         get {
             protectedPropertyQueue.sync { _stableID }
         }
@@ -222,13 +225,18 @@ public enum AIProxy {
     ///
     /// - Parameters:
     ///   - unprotectedAPIKey: Your OpenAI API key
+    ///   - baseURL: Optional base URL for the API requests
+    ///   - requestFormat: If you are sending requests to your own Azure deployment, set this to `.azureDeployment`.
+    ///                   Otherwise, you may leave this set to its default value of `.standard`
     /// - Returns: An instance of OpenAIService configured and ready to make requests
     public static func openAIDirectService(
         unprotectedAPIKey: String,
-        baseURL: String? = nil
+        baseURL: String? = nil,
+        requestFormat: OpenAIRequestFormat = .standard
     ) -> OpenAIService {
         return OpenAIDirectService(
             unprotectedAPIKey: unprotectedAPIKey,
+            requestFormat: requestFormat,
             baseURL: baseURL
         )
     }
@@ -1002,12 +1010,16 @@ public enum AIProxy {
         return await self._getStableIdentifier()
     }
 
-    @NetworkActor
     private static func _getStableIdentifier() async -> String? {
+        #if !DEBUG
+        if let appTransactionID = await AIProxyUtils.getAppTransactionID() {
+            return appTransactionID
+        }
+        #endif
         do {
             return try await AnonymousAccountStorage.sync()
         } catch {
-            logIf(.critical)?.critical("Could not configure an AIProxy anonymous account: \(error.localizedDescription)")
+            logIf(.error)?.error("AIProxy: Could not configure an anonymous account: \(error.localizedDescription)")
         }
         return nil
     }
