@@ -167,19 +167,9 @@ nonisolated public final class AIProxyCertificatePinningDelegate: NSObject, URLS
          return (.cancelAuthenticationChallenge, nil)
       }
 
-      guard let certificate = getServerCert(secTrust: secTrust) else {
-         logIf(.error)?.error("Could not access the server's TLS cert")
-         return (.cancelAuthenticationChallenge, nil)
-      }
-
-      let serverPublicKey = SecCertificateCopyKey(certificate)!
-      let serverPublicKeyData = SecKeyCopyExternalRepresentation(serverPublicKey, nil)!
-
-      for publicKeyData in publicKeysAsData {
-         if serverPublicKeyData as Data == publicKeyData {
-            let credential = URLCredential(trust: secTrust)
-            return (.useCredential, credential)
-         }
+      if aiproxyValidatePinnedCertificate(secTrust) {
+         let credential = URLCredential(trust: secTrust)
+         return (.useCredential, credential)
       }
       return (.cancelAuthenticationChallenge, nil)
    }
@@ -194,6 +184,31 @@ nonisolated public final class AIProxyCertificatePinningDelegate: NSObject, URLS
     public func clearProgressCallback() {
         self.progressCallback = nil
     }
+}
+
+// MARK: - Reusable Certificate Pinning Validation
+
+/// Validates that the server's public key matches one of AIProxy's pinned keys.
+/// Used by both the URLSession delegate and NWConnection TLS verify block.
+nonisolated func aiproxyValidatePinnedCertificate(_ secTrust: SecTrust) -> Bool {
+    guard let certificate = getServerCert(secTrust: secTrust) else {
+        logIf(.error)?.error("Could not access the server's TLS cert")
+        return false
+    }
+
+    guard let serverPublicKey = SecCertificateCopyKey(certificate),
+          let serverPublicKeyData = SecKeyCopyExternalRepresentation(serverPublicKey, nil) as Data?
+    else {
+        logIf(.error)?.error("Could not extract the server's public key")
+        return false
+    }
+
+    for publicKeyData in publicKeysAsData {
+        if serverPublicKeyData == publicKeyData {
+            return true
+        }
+    }
+    return false
 }
 
  // MARK: - Private

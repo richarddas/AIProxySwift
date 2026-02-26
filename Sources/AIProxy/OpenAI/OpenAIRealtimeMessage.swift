@@ -150,9 +150,17 @@ public struct OpenAIRealtimeResponseCreatedEvent: Decodable, Sendable {
 
 public struct OpenAIRealtimeResponseAudioDeltaEvent: Decodable, Sendable {
     public let base64Audio: String
+    public let responseID: String?
 
     private enum CodingKeys: String, CodingKey {
         case base64Audio = "delta"
+        case responseID = "response_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.base64Audio = try container.decode(String.self, forKey: .base64Audio)
+        self.responseID = try container.decodeIfPresent(String.self, forKey: .responseID)
     }
 }
 
