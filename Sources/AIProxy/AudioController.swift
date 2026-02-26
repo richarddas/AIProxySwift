@@ -7,6 +7,12 @@
 
 import AVFoundation
 
+public enum AudioPlaybackLifecycleEvent: Sendable {
+    case started
+    case interrupted
+    case drained
+}
+
 /// Use this class to control the streaming of mic data and playback of 24kHz signed PCM16, little-endian data.
 /// Audio played using the `playPCM16Audio` method does not interfere with the mic data streaming out of the `micStream` AsyncStream.
 /// That is, if you use this to control audio in an OpenAI realtime session, the model will not hear itself.
@@ -153,5 +159,20 @@ import AVFoundation
             return
         }
         audioPCMPlayer.interruptPlayback()
+    }
+
+    /// Registers a callback for local playback lifecycle signals emitted by the audio layer.
+    ///
+    /// These events describe local playback behavior (started/interrupted/drained) and are
+    /// independent of remote protocol events such as `response.audio.done`.
+    public func setPlaybackLifecycleHandler(
+        _ handler: @escaping (AudioPlaybackLifecycleEvent) -> Void
+    ) {
+        guard self.modes.contains(.playback),
+              let audioPCMPlayer = self.audioPCMPlayer else {
+            logIf(.error)?.error("Please pass [.playback] to the AudioController initializer")
+            return
+        }
+        audioPCMPlayer.setPlaybackLifecycleHandler(handler)
     }
 }

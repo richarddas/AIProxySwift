@@ -422,7 +422,8 @@ public struct OpenAIRealtimeResponseDoneEvent: Decodable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let response = try container.decodeIfPresent(ResponseBody.self, forKey: .response)
-        self.responseID = response?.id
+        let fallbackResponseID = try container.decodeIfPresent(String.self, forKey: .responseID)
+        self.responseID = response?.id ?? fallbackResponseID
         self.conversationID = response?.conversationID
         self.status = response?.status
         self.eventID = try container.decodeIfPresent(String.self, forKey: .eventID)
