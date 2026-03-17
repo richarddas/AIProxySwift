@@ -28,9 +28,9 @@ public extension OpenAIRealtimeConversationItemCreate {
             self.role = role
             // The OpenAI Realtime API requires different content types per role:
             //   - user/system: "input_text"
-            //   - assistant: "text"
+            //   - assistant: "output_text" (GA-aligned)
             // See: https://platform.openai.com/docs/api-reference/realtime-client-events/conversation/item/create
-            let contentType = (role == "assistant") ? "text" : "input_text"
+            let contentType = (role == "assistant") ? "output_text" : "input_text"
             self.content = [Content(type: contentType, text: text)]
         }
     }

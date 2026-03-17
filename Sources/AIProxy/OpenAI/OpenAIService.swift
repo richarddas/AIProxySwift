@@ -19,6 +19,20 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
     )
 }
 
+public enum OpenAIRealtimeAPIInterface: Sendable {
+    case ga
+    case betaV1
+
+    var realtimeHeaders: [String: String] {
+        switch self {
+        case .ga:
+            return [:]
+        case .betaV1:
+            return ["openai-beta": "realtime=v1"]
+        }
+    }
+}
+
 @AIProxyActor public class OpenAIService: Sendable {
     private let requestFormat: OpenAIRequestFormat
     private let requestBuilder: AIProxyRequestBuilder
@@ -258,7 +272,8 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
     public func realtimeSession(
         model: String,
         configuration: OpenAIRealtimeSessionConfiguration,
-        logLevel: AIProxyLogLevel
+        logLevel: AIProxyLogLevel,
+        apiInterface: OpenAIRealtimeAPIInterface = .ga
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
 
@@ -267,9 +282,7 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         let request = try await self.requestBuilder.plainGET(
             path: "/v1/realtime?model=\(model)",
             secondsToWait: 60,
-            additionalHeaders: [
-                "openai-beta": "realtime=v1"
-            ]
+            additionalHeaders: apiInterface.realtimeHeaders
         )
 
         guard let url = request.url,
