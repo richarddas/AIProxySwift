@@ -8,6 +8,9 @@
 /// Realtime session configuration
 /// https://platform.openai.com/docs/api-reference/realtime-client-events/session/update#realtime-client-events/session/update-session
 nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendable {
+    /// Required in GA: identifies whether the session is speech-to-speech realtime
+    /// or realtime transcription.
+    public let type: SessionType
 
     // TODO: Move this to an extension
     nonisolated public enum ToolChoice: Encodable, Sendable {
@@ -111,6 +114,7 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     public let voice: String?
 
     private enum CodingKeys: String, CodingKey {
+        case type
         case inputAudioFormat = "input_audio_format"
         case inputAudioTranscription = "input_audio_transcription"
         case instructions
@@ -126,6 +130,7 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     }
 
     public init(
+        type: OpenAIRealtimeSessionConfiguration.SessionType = .realtime,
         inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
         inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription? = nil,
         instructions: String? = nil,
@@ -139,6 +144,7 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection? = nil,
         voice: String? = nil
     ) {
+        self.type = type
         self.inputAudioFormat = inputAudioFormat
         self.inputAudioTranscription = inputAudioTranscription
         self.instructions = instructions
@@ -151,6 +157,14 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         self.toolChoice = toolChoice
         self.turnDetection = turnDetection
         self.voice = voice
+    }
+}
+
+// MARK: -
+extension OpenAIRealtimeSessionConfiguration {
+    nonisolated public enum SessionType: String, Encodable, Sendable {
+        case realtime
+        case transcription
     }
 }
 

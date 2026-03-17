@@ -7,6 +7,20 @@
 
 import Foundation
 
+public enum OpenAIRealtimeAPIInterface: Sendable {
+    case ga
+    case betaV1
+
+    var realtimeHeaders: [String: String] {
+        switch self {
+        case .ga:
+            return [:]
+        case .betaV1:
+            return ["openai-beta": "realtime=v1"]
+        }
+    }
+}
+
 @AIProxyActor public class OpenAIService: Sendable {
     private let requestFormat: OpenAIRequestFormat
     private let requestBuilder: AIProxyRequestBuilder
@@ -246,15 +260,14 @@ import Foundation
     public func realtimeSession(
         model: String,
         configuration: OpenAIRealtimeSessionConfiguration,
-        logLevel: AIProxyLogLevel
+        logLevel: AIProxyLogLevel,
+        apiInterface: OpenAIRealtimeAPIInterface = .ga
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
         let request = try await self.requestBuilder.plainGET(
             path: "/v1/realtime?model=\(model)",
             secondsToWait: 60,
-            additionalHeaders: [
-                "openai-beta": "realtime=v1"
-            ]
+            additionalHeaders: apiInterface.realtimeHeaders
         )
         return OpenAIRealtimeSession(
             webSocketTask: self.serviceNetworker.urlSession.webSocketTask(with: request),
