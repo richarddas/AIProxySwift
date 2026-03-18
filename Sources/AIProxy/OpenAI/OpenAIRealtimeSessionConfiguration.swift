@@ -183,6 +183,41 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         self.voice = voice
     }
 
+    /// Deprecated initializer preserving legacy argument labels.
+    @available(*, deprecated, message: "Use maxOutputTokens/outputModalities labels.")
+    @_disfavoredOverload
+    public init(
+        type: OpenAIRealtimeSessionConfiguration.SessionType = .realtime,
+        inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
+        inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription? = nil,
+        instructions: String? = nil,
+        maxResponseOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens? = nil,
+        modalities: [OpenAIRealtimeSessionConfiguration.Modality]? = nil,
+        outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
+        speed: Float? = 1.0,
+        temperature: Double? = nil,
+        tools: [OpenAIRealtimeSessionConfiguration.Tool]? = nil,
+        toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice? = nil,
+        turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection? = nil,
+        voice: String? = nil
+    ) {
+        self.init(
+            type: type,
+            inputAudioFormat: inputAudioFormat,
+            inputAudioTranscription: inputAudioTranscription,
+            instructions: instructions,
+            maxOutputTokens: maxResponseOutputTokens,
+            outputModalities: modalities,
+            outputAudioFormat: outputAudioFormat,
+            speed: speed,
+            temperature: temperature,
+            tools: tools,
+            toolChoice: toolChoice,
+            turnDetection: turnDetection,
+            voice: voice
+        )
+    }
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)

@@ -27,12 +27,14 @@ public enum OpenAIRealtimeAPIVersion: Sendable {
         case .ga:
             return OpenAIRealtimeSessionUpdate(
                 eventId: eventID,
-                session: .ga(.init(configuration: configuration))
+                session: configuration,
+                sessionBody: .ga(.init(configuration: configuration))
             )
         case .betaV1:
             return OpenAIRealtimeSessionUpdate(
                 eventId: eventID,
-                session: .betaV1(.init(configuration: configuration))
+                session: configuration,
+                sessionBody: .betaV1(.init(configuration: configuration))
             )
         }
     }

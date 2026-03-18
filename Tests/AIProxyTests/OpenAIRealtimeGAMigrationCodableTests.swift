@@ -52,6 +52,20 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     @Test
+    func testLegacySessionConfigurationInitializerLabelsRemainSupported() throws {
+        let config = OpenAIRealtimeSessionConfiguration(
+            maxResponseOutputTokens: .int(654),
+            modalities: [.text]
+        )
+        let encoded: Data = try config.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
+        #expect(decoded.maxOutputTokens == 654)
+        #expect(decoded.outputModalities == ["text"])
+        #expect(decoded.legacyMaxResponseOutputTokens == nil)
+        #expect(decoded.modalities == nil)
+    }
+
+    @Test
     func testSessionUpdateEnvelopeUsesNestedAudioAndNoLegacyKeys() throws {
         let update = OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(
             from: OpenAIRealtimeSessionConfiguration(
@@ -76,6 +90,21 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         #expect(decoded.session.legacyInputAudioFormat == nil)
         #expect(decoded.session.legacyInputAudioTranscription == nil)
         #expect(decoded.session.legacyOutputAudioFormat == nil)
+    }
+
+    @Test
+    func testLegacySessionUpdateInitializerRemainsGACompatible() throws {
+        let config = OpenAIRealtimeSessionConfiguration(
+            maxResponseOutputTokens: .int(42),
+            modalities: [.text]
+        )
+        let update = OpenAIRealtimeSessionUpdate(session: config)
+        let encoded: Data = try update.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
+        #expect(decoded.type == "session.update")
+        #expect(decoded.session.maxOutputTokens == 42)
+        #expect(decoded.session.outputModalities == ["text"])
+        #expect(decoded.session.modalities == nil)
     }
 
     @Test
