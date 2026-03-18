@@ -60,7 +60,7 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
             }
         }
     }
-    
+
     /// The format of input audio. Options are `pcm16`, `g711_ulaw`, or `g711_alaw`.
     public let inputAudioFormat: AudioFormat?
 
@@ -86,13 +86,6 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     /// the maximum available tokens for a given model. Defaults to "inf".
     public let maxResponseOutputTokens: MaxResponseOutputTokens?
 
-    /// The set of modalities the model can respond with. To disable audio, set this to ["text"].
-    /// Possible values are `audio` and `text`.
-    ///
-    /// In GA session updates this is encoded as `output_modalities`.
-    /// In beta-v1 session updates this remains `modalities`.
-    public let modalities: [Modality]?
-
     /// The format of output audio.
     public let outputAudioFormat: AudioFormat?
 
@@ -115,6 +108,17 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     /// The voice the model uses to respond - one of alloy, echo, or shimmer. Cannot be
     /// changed once the model has responded with audio at least once.
     public let voice: String?
+
+    /// Public SDK input for response modalities. To disable audio, set this to `["text"]`.
+    /// Possible values are `audio` and `text`.
+    ///
+    /// GA compatibility note:
+    /// - GA session.update expects `output_modalities`.
+    /// - beta-v1 session.update expects `modalities`.
+    ///
+    /// BETA_COMPAT_SUNSET: this field exists to preserve beta-v1 compatibility.
+    public let modalities: [Modality]?
+
     private let outputModalities: [Modality]?
 
     private enum CodingKeys: String, CodingKey {
@@ -243,6 +247,13 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         }
     }
 
+    /// Returns a session-update payload compatible with the selected realtime interface.
+    ///
+    /// - GA: maps public `modalities` -> GA wire key `output_modalities`.
+    /// - beta-v1: preserves legacy `modalities` wire key.
+    ///
+    /// BETA_COMPAT_SUNSET: remove this entire function when dropping realtime beta
+    /// support; send `sessionConfiguration` directly.
     nonisolated func sessionUpdateConfiguration(
         for apiInterface: OpenAIRealtimeAPIInterface
     ) -> OpenAIRealtimeSessionConfiguration {
@@ -322,7 +333,7 @@ extension OpenAIRealtimeSessionConfiguration {
 
         /// The type of the tool, e.g., "function".
         public let type = "function"
-        
+
         public init(name: String, description: String, parameters: [String: AIProxyJSONValue]) {
             self.name = name
             self.description = description

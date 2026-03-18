@@ -30,6 +30,7 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         #expect(decoded.audio?.input?.transcription?.model == "gpt-4o-mini-transcribe")
     }
 
+    // BETA_COMPAT_SUNSET: remove this test when dropping realtime beta support.
     @Test
     func testRealtimeAPIInterfaceAppliesBetaHeaderOnlyForBetaV1() {
         let gaHeaders = OpenAIRealtimeAPIInterface.ga.realtimeHeaders
@@ -80,6 +81,7 @@ struct OpenAIRealtimeGAMigrationCodableTests {
 
     @Test
     func testSessionUpdateModalitiesMapToOutputModalitiesForGAAndStayModalitiesForBeta() throws {
+        // BETA_COMPAT_SUNSET: remove beta-shape assertions when dropping realtime beta support.
         let config = OpenAIRealtimeSessionConfiguration(
             type: .realtime,
             modalities: [.text]
@@ -170,7 +172,9 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     private struct SessionConfigurationMirror: Decodable {
         let type: String?
         let audio: Audio?
+        // BETA_COMPAT_SUNSET: beta session.update shape.
         let modalities: [String]?
+        // BETA_COMPAT_SUNSET: GA session.update shape.
         let outputModalities: [String]?
         let maxOutputTokens: Int?
         let legacyInputAudioFormat: String?
