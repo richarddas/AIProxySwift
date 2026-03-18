@@ -124,8 +124,13 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     /// changed once the model has responded with audio at least once.
     public let voice: String?
 
-    /// Output modalities for assistant responses. Set to `["text"]` to disable audio output.
-    /// Possible values are `audio` and `text`.
+    /// Output modalities for assistant responses.
+    ///
+    /// GA behavior is counterintuitive:
+    /// - `["audio"]` means audio output with transcript.
+    /// - `["text"]` means text-only output.
+    ///
+    /// Set to `["text"]` to disable audio output.
     public let outputModalities: [Modality]?
 
     /// Deprecated alias for `outputModalities`.

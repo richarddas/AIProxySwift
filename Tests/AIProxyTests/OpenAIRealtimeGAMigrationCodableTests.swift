@@ -86,9 +86,11 @@ struct OpenAIRealtimeGAMigrationCodableTests {
 
         #expect(decoded.type == "session.update")
         #expect(decoded.session.type == "realtime")
-        #expect(decoded.session.audio?.input?.format == "pcm16")
+        #expect(decoded.session.audio?.input?.format?.type == "audio/pcm")
+        #expect(decoded.session.audio?.input?.format?.rate == 24000)
         #expect(decoded.session.audio?.input?.transcription?.model == "gpt-4o-mini-transcribe")
-        #expect(decoded.session.audio?.output?.format == "pcm16")
+        #expect(decoded.session.audio?.output?.format?.type == "audio/pcm")
+        #expect(decoded.session.audio?.output?.format?.rate == 24000)
         #expect(decoded.session.audio?.output?.voice == "alloy")
         #expect(decoded.session.legacyInputAudioFormat == nil)
         #expect(decoded.session.legacyInputAudioTranscription == nil)
@@ -185,14 +187,35 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         let encoded: Data = try OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(from: config.asGAConfiguration).serialize(pretty: false)
         let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
 
-        #expect(decoded.session.audio?.input?.format == "pcm16")
+        #expect(decoded.session.audio?.input?.format?.type == "audio/pcm")
+        #expect(decoded.session.audio?.input?.format?.rate == 24000)
         #expect(decoded.session.audio?.input?.transcription?.model == "gpt-4o-mini-transcribe")
-        #expect(decoded.session.audio?.output?.format == "pcm16")
+        #expect(decoded.session.audio?.output?.format?.type == "audio/pcm")
+        #expect(decoded.session.audio?.output?.format?.rate == 24000)
         #expect(decoded.session.audio?.output?.speed == 1.0)
         #expect(decoded.session.audio?.output?.voice == "alloy")
         #expect(decoded.session.legacyInputAudioFormat == nil)
         #expect(decoded.session.legacyInputAudioTranscription == nil)
         #expect(decoded.session.legacyOutputAudioFormat == nil)
+    }
+
+    @Test
+    func testGAAudioFormatsEncodeAsTypedObjectsForG711() throws {
+        let update = OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(
+            from: OpenAIRealtimeSessionConfigurationGA(
+                type: .realtime,
+                inputAudioFormat: .g711Ulaw,
+                outputAudioFormat: .g711Alaw
+            )
+        )
+
+        let encoded: Data = try update.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
+
+        #expect(decoded.session.audio?.input?.format?.type == "audio/pcmu")
+        #expect(decoded.session.audio?.input?.format?.rate == nil)
+        #expect(decoded.session.audio?.output?.format?.type == "audio/pcma")
+        #expect(decoded.session.audio?.output?.format?.rate == nil)
     }
 
     @Test
@@ -274,7 +297,7 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     private struct InputAudio: Decodable {
-        let format: String?
+        let format: AudioFormatObject?
         let transcription: InputAudioTranscription?
     }
 
@@ -283,8 +306,13 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     private struct OutputAudio: Decodable {
-        let format: String?
+        let format: AudioFormatObject?
         let speed: Double?
         let voice: String?
+    }
+
+    private struct AudioFormatObject: Decodable {
+        let type: String?
+        let rate: Int?
     }
 }

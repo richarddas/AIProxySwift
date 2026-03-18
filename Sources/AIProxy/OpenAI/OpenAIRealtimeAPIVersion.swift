@@ -144,6 +144,27 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
         case voice
     }
 
+    /// GA `audio.*.format` is an object union (`audio/pcm`, `audio/pcmu`, `audio/pcma`),
+    /// while legacy/beta shapes used string enums (`pcm16`, `g711_*`).
+    private struct RealtimeAudioFormatWire: Encodable, Sendable {
+        let type: String
+        let rate: Int?
+
+        init(_ format: OpenAIRealtimeSessionConfiguration.AudioFormat) {
+            switch format {
+            case .pcm16:
+                self.type = "audio/pcm"
+                self.rate = 24000
+            case .g711Ulaw:
+                self.type = "audio/pcmu"
+                self.rate = nil
+            case .g711Alaw:
+                self.type = "audio/pcma"
+                self.rate = nil
+            }
+        }
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)
@@ -168,7 +189,12 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
                     keyedBy: InputAudioCodingKeys.self,
                     forKey: .input
                 )
-                try inputContainer.encodeIfPresent(inputAudioFormat, forKey: .format)
+                if let inputAudioFormat {
+                    try inputContainer.encode(
+                        RealtimeAudioFormatWire(inputAudioFormat),
+                        forKey: .format
+                    )
+                }
                 try inputContainer.encodeIfPresent(inputAudioTranscription, forKey: .transcription)
                 try inputContainer.encodeIfPresent(turnDetection, forKey: .turnDetection)
             }
@@ -177,7 +203,12 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
                     keyedBy: OutputAudioCodingKeys.self,
                     forKey: .output
                 )
-                try outputContainer.encodeIfPresent(outputAudioFormat, forKey: .format)
+                if let outputAudioFormat {
+                    try outputContainer.encode(
+                        RealtimeAudioFormatWire(outputAudioFormat),
+                        forKey: .format
+                    )
+                }
                 try outputContainer.encodeIfPresent(speed, forKey: .speed)
                 try outputContainer.encodeIfPresent(voice, forKey: .voice)
             }
