@@ -79,6 +79,28 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     @Test
+    func testSessionUpdateModalitiesAreStrippedForGAAndPreservedForBeta() throws {
+        let config = OpenAIRealtimeSessionConfiguration(
+            type: .realtime,
+            modalities: [.text]
+        )
+
+        let gaUpdate = OpenAIRealtimeSessionUpdate(
+            session: config.sessionUpdateConfiguration(for: .ga)
+        )
+        let gaEncoded: Data = try gaUpdate.serialize(pretty: false)
+        let gaDecoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: gaEncoded)
+        #expect(gaDecoded.session.modalities == nil)
+
+        let betaUpdate = OpenAIRealtimeSessionUpdate(
+            session: config.sessionUpdateConfiguration(for: .betaV1)
+        )
+        let betaEncoded: Data = try betaUpdate.serialize(pretty: false)
+        let betaDecoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: betaEncoded)
+        #expect(betaDecoded.session.modalities == ["text"])
+    }
+
+    @Test
     func testSessionConfigurationUsesNestedAudioForGA() throws {
         let config = OpenAIRealtimeSessionConfiguration(
             inputAudioFormat: .pcm16,
@@ -146,6 +168,7 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     private struct SessionConfigurationMirror: Decodable {
         let type: String?
         let audio: Audio?
+        let modalities: [String]?
         let maxOutputTokens: Int?
         let legacyInputAudioFormat: String?
         let legacyInputAudioTranscription: InputAudioTranscription?
@@ -155,6 +178,7 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         private enum CodingKeys: String, CodingKey {
             case type
             case audio
+            case modalities
             case maxOutputTokens = "max_output_tokens"
             case legacyInputAudioFormat = "input_audio_format"
             case legacyInputAudioTranscription = "input_audio_transcription"

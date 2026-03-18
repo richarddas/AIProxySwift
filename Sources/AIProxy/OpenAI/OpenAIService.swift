@@ -271,7 +271,8 @@ public enum OpenAIRealtimeAPIInterface: Sendable {
         )
         return OpenAIRealtimeSession(
             webSocketTask: self.serviceNetworker.urlSession.webSocketTask(with: request),
-            sessionConfiguration: configuration
+            sessionConfiguration: configuration,
+            apiInterface: apiInterface
         )
     }
 
