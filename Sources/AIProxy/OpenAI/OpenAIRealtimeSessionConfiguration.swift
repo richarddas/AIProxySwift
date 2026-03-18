@@ -84,7 +84,15 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     /// Maximum number of output tokens for a single assistant response, inclusive of tool
     /// calls. Provide an integer between 1 and 4096 to limit output tokens, or "inf" for
     /// the maximum available tokens for a given model. Defaults to "inf".
-    public let maxResponseOutputTokens: MaxResponseOutputTokens?
+    public let maxOutputTokens: MaxOutputTokens?
+
+    /// Deprecated alias for `maxOutputTokens`.
+    @available(*, deprecated, renamed: "maxOutputTokens")
+    public var maxResponseOutputTokens: MaxOutputTokens? { maxOutputTokens }
+
+    /// Deprecated alias for `MaxOutputTokens`.
+    @available(*, deprecated, renamed: "MaxOutputTokens")
+    public typealias MaxResponseOutputTokens = MaxOutputTokens
 
     /// The format of output audio.
     public let outputAudioFormat: AudioFormat?
@@ -109,24 +117,19 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     /// changed once the model has responded with audio at least once.
     public let voice: String?
 
-    /// Public SDK input for response modalities. To disable audio, set this to `["text"]`.
+    /// Output modalities for assistant responses. Set to `["text"]` to disable audio output.
     /// Possible values are `audio` and `text`.
-    ///
-    /// GA compatibility note:
-    /// - GA session.update expects `output_modalities`.
-    /// - beta-v1 session.update expects `modalities`.
-    ///
-    /// BETA_COMPAT_SUNSET: this field exists to preserve beta-v1 compatibility.
-    public let modalities: [Modality]?
+    public let outputModalities: [Modality]?
 
-    private let outputModalities: [Modality]?
+    /// Deprecated alias for `outputModalities`.
+    @available(*, deprecated, renamed: "outputModalities")
+    public var modalities: [Modality]? { outputModalities }
 
     private enum CodingKeys: String, CodingKey {
         case type
         case audio
         case instructions
         case maxOutputTokens = "max_output_tokens"
-        case modalities
         case outputModalities = "output_modalities"
         case temperature
         case tools
@@ -155,8 +158,8 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
         inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription? = nil,
         instructions: String? = nil,
-        maxResponseOutputTokens: OpenAIRealtimeSessionConfiguration.MaxResponseOutputTokens? = nil,
-        modalities: [OpenAIRealtimeSessionConfiguration.Modality]? = nil,
+        maxOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens? = nil,
+        outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]? = nil,
         outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
         speed: Float? = 1.0,
         temperature: Double? = nil,
@@ -169,40 +172,7 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         self.inputAudioFormat = inputAudioFormat
         self.inputAudioTranscription = inputAudioTranscription
         self.instructions = instructions
-        self.maxResponseOutputTokens = maxResponseOutputTokens
-        self.modalities = modalities
-        self.outputAudioFormat = outputAudioFormat
-        self.speed = speed
-        self.temperature = temperature
-        self.tools = tools
-        self.toolChoice = toolChoice
-        self.turnDetection = turnDetection
-        self.voice = voice
-        self.outputModalities = nil
-    }
-
-    private init(
-        type: OpenAIRealtimeSessionConfiguration.SessionType,
-        inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?,
-        inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription?,
-        instructions: String?,
-        maxResponseOutputTokens: OpenAIRealtimeSessionConfiguration.MaxResponseOutputTokens?,
-        modalities: [OpenAIRealtimeSessionConfiguration.Modality]?,
-        outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]?,
-        outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?,
-        speed: Float?,
-        temperature: Double?,
-        tools: [OpenAIRealtimeSessionConfiguration.Tool]?,
-        toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice?,
-        turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection?,
-        voice: String?
-    ) {
-        self.type = type
-        self.inputAudioFormat = inputAudioFormat
-        self.inputAudioTranscription = inputAudioTranscription
-        self.instructions = instructions
-        self.maxResponseOutputTokens = maxResponseOutputTokens
-        self.modalities = modalities
+        self.maxOutputTokens = maxOutputTokens
         self.outputModalities = outputModalities
         self.outputAudioFormat = outputAudioFormat
         self.speed = speed
@@ -217,12 +187,8 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)
         try container.encodeIfPresent(instructions, forKey: .instructions)
-        try container.encodeIfPresent(maxResponseOutputTokens, forKey: .maxOutputTokens)
-        if let outputModalities {
-            try container.encode(outputModalities, forKey: .outputModalities)
-        } else {
-            try container.encodeIfPresent(modalities, forKey: .modalities)
-        }
+        try container.encodeIfPresent(maxOutputTokens, forKey: .maxOutputTokens)
+        try container.encodeIfPresent(outputModalities, forKey: .outputModalities)
         try container.encodeIfPresent(temperature, forKey: .temperature)
         try container.encodeIfPresent(tools, forKey: .tools)
         try container.encodeIfPresent(toolChoice, forKey: .toolChoice)
@@ -245,40 +211,6 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
                 try outputContainer.encodeIfPresent(voice, forKey: .voice)
             }
         }
-    }
-
-    /// Returns a session-update payload compatible with the selected realtime interface.
-    ///
-    /// - GA: maps public `modalities` -> GA wire key `output_modalities`.
-    /// - beta-v1: preserves legacy `modalities` wire key.
-    ///
-    /// BETA_COMPAT_SUNSET: remove this entire function when dropping realtime beta
-    /// support; send `sessionConfiguration` directly.
-    nonisolated func sessionUpdateConfiguration(
-        for apiInterface: OpenAIRealtimeAPIInterface
-    ) -> OpenAIRealtimeSessionConfiguration {
-        guard apiInterface == .ga else {
-            return self
-        }
-        guard let modalities else {
-            return self
-        }
-        return OpenAIRealtimeSessionConfiguration(
-            type: type,
-            inputAudioFormat: inputAudioFormat,
-            inputAudioTranscription: inputAudioTranscription,
-            instructions: instructions,
-            maxResponseOutputTokens: maxResponseOutputTokens,
-            modalities: nil,
-            outputModalities: modalities,
-            outputAudioFormat: outputAudioFormat,
-            speed: speed,
-            temperature: temperature,
-            tools: tools,
-            toolChoice: toolChoice,
-            turnDetection: turnDetection,
-            voice: voice
-        )
     }
 }
 
@@ -303,7 +235,7 @@ extension OpenAIRealtimeSessionConfiguration {
 
 // MARK: -
 extension OpenAIRealtimeSessionConfiguration {
-    nonisolated public enum MaxResponseOutputTokens: Encodable, Sendable {
+    nonisolated public enum MaxOutputTokens: Encodable, Sendable {
         case int(Int)
         case infinite
 

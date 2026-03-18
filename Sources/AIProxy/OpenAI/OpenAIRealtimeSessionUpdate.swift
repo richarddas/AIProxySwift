@@ -6,8 +6,8 @@ nonisolated public struct OpenAIRealtimeSessionUpdate: Encodable {
     /// Optional client-generated ID used to identify this event.
     public let eventId: String?
 
-    /// Session configuration to update
-    public let session: OpenAIRealtimeSessionConfiguration
+    /// Session payload to update. The wire shape is selected by API version.
+    let session: OpenAIRealtimeSessionUpdateBody
 
     /// The event type, must be "session.update".
     public let type = "session.update"
@@ -18,9 +18,9 @@ nonisolated public struct OpenAIRealtimeSessionUpdate: Encodable {
         case type
     }
 
-    public init(
+    init(
         eventId: String? = nil,
-        session: OpenAIRealtimeSessionConfiguration
+        session: OpenAIRealtimeSessionUpdateBody
     ) {
         self.eventId = eventId
         self.session = session

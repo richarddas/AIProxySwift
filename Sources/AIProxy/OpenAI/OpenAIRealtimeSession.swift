@@ -16,25 +16,21 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
     private let webSocketTask: URLSessionWebSocketTask
     private var continuation: AsyncStream<OpenAIRealtimeMessage>.Continuation?
     private let setupTime = Date()
-    private let apiInterface: OpenAIRealtimeAPIInterface
+    private let apiVersion: OpenAIRealtimeAPIVersion
     let sessionConfiguration: OpenAIRealtimeSessionConfiguration
 
     init(
         webSocketTask: URLSessionWebSocketTask,
         sessionConfiguration: OpenAIRealtimeSessionConfiguration,
-        apiInterface: OpenAIRealtimeAPIInterface
+        apiVersion: OpenAIRealtimeAPIVersion
     ) {
         self.webSocketTask = webSocketTask
         self.sessionConfiguration = sessionConfiguration
-        self.apiInterface = apiInterface
+        self.apiVersion = apiVersion
 
         Task {
             await self.sendMessage(
-                OpenAIRealtimeSessionUpdate(
-                    session: self.sessionConfiguration.sessionUpdateConfiguration(
-                        for: self.apiInterface
-                    )
-                )
+                self.apiVersion.makeSessionUpdate(from: self.sessionConfiguration)
             )
         }
         self.webSocketTask.resume()
