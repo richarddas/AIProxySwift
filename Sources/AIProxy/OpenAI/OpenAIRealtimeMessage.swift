@@ -128,7 +128,7 @@ public struct OpenAIRealtimeErrorEvent: Decodable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let errorString = try container.decodeIfPresent(String.self, forKey: .error) {
+        if let errorString = try? container.decode(String.self, forKey: .error) {
             self.errorBody = errorString
             return
         }

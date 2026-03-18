@@ -115,17 +115,29 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
 
     private enum CodingKeys: String, CodingKey {
         case type
-        case inputAudioFormat = "input_audio_format"
-        case inputAudioTranscription = "input_audio_transcription"
+        case audio
         case instructions
-        case maxResponseOutputTokens = "max_response_output_tokens"
+        case maxOutputTokens = "max_output_tokens"
         case modalities
-        case outputAudioFormat = "output_audio_format"
-        case speed
         case temperature
         case tools
         case toolChoice = "tool_choice"
+    }
+
+    private enum AudioCodingKeys: String, CodingKey {
+        case input
+        case output
+    }
+
+    private enum InputAudioCodingKeys: String, CodingKey {
+        case format
+        case transcription
         case turnDetection = "turn_detection"
+    }
+
+    private enum OutputAudioCodingKeys: String, CodingKey {
+        case format
+        case speed
         case voice
     }
 
@@ -157,6 +169,36 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         self.toolChoice = toolChoice
         self.turnDetection = turnDetection
         self.voice = voice
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encodeIfPresent(instructions, forKey: .instructions)
+        try container.encodeIfPresent(maxResponseOutputTokens, forKey: .maxOutputTokens)
+        try container.encodeIfPresent(modalities, forKey: .modalities)
+        try container.encodeIfPresent(temperature, forKey: .temperature)
+        try container.encodeIfPresent(tools, forKey: .tools)
+        try container.encodeIfPresent(toolChoice, forKey: .toolChoice)
+
+        let hasInputAudioConfig = inputAudioFormat != nil || inputAudioTranscription != nil || turnDetection != nil
+        let hasOutputAudioConfig = outputAudioFormat != nil || speed != nil || voice != nil
+
+        if hasInputAudioConfig || hasOutputAudioConfig {
+            var audioContainer = container.nestedContainer(keyedBy: AudioCodingKeys.self, forKey: .audio)
+            if hasInputAudioConfig {
+                var inputContainer = audioContainer.nestedContainer(keyedBy: InputAudioCodingKeys.self, forKey: .input)
+                try inputContainer.encodeIfPresent(inputAudioFormat, forKey: .format)
+                try inputContainer.encodeIfPresent(inputAudioTranscription, forKey: .transcription)
+                try inputContainer.encodeIfPresent(turnDetection, forKey: .turnDetection)
+            }
+            if hasOutputAudioConfig {
+                var outputContainer = audioContainer.nestedContainer(keyedBy: OutputAudioCodingKeys.self, forKey: .output)
+                try outputContainer.encodeIfPresent(outputAudioFormat, forKey: .format)
+                try outputContainer.encodeIfPresent(speed, forKey: .speed)
+                try outputContainer.encodeIfPresent(voice, forKey: .voice)
+            }
+        }
     }
 }
 
