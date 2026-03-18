@@ -5,8 +5,15 @@
 //  Created by Lou Zell on 2/23/25.
 //
 
-/// Realtime session configuration
-/// https://platform.openai.com/docs/api-reference/realtime-client-events/session/update#realtime-client-events/session/update-session
+/// Legacy realtime session configuration.
+///
+/// This type remains source-compatible for existing SDK consumers and is encoded
+/// using beta-v1 wire keys by default. Prefer `OpenAIRealtimeSessionConfigurationGA`
+/// when opting in to the GA interface.
+///
+/// Docs:
+/// - GA reference: https://developers.openai.com/api/reference/resources/realtime
+/// - Migration guide: https://platform.openai.com/docs/guides/realtime#beta-to-ga-migration
 nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendable {
     /// Required in GA: identifies whether the session is speech-to-speech realtime
     /// or realtime transcription.
@@ -126,30 +133,17 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     public var modalities: [Modality]? { outputModalities }
 
     private enum CodingKeys: String, CodingKey {
-        case type
-        case audio
+        case inputAudioFormat = "input_audio_format"
+        case inputAudioTranscription = "input_audio_transcription"
         case instructions
-        case maxOutputTokens = "max_output_tokens"
-        case outputModalities = "output_modalities"
+        case maxResponseOutputTokens = "max_response_output_tokens"
+        case modalities
+        case outputAudioFormat = "output_audio_format"
+        case speed
         case temperature
         case tools
         case toolChoice = "tool_choice"
-    }
-
-    private enum AudioCodingKeys: String, CodingKey {
-        case input
-        case output
-    }
-
-    private enum InputAudioCodingKeys: String, CodingKey {
-        case format
-        case transcription
         case turnDetection = "turn_detection"
-    }
-
-    private enum OutputAudioCodingKeys: String, CodingKey {
-        case format
-        case speed
         case voice
     }
 
@@ -220,32 +214,171 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(type, forKey: .type)
+        try container.encodeIfPresent(inputAudioFormat, forKey: .inputAudioFormat)
+        try container.encodeIfPresent(inputAudioTranscription, forKey: .inputAudioTranscription)
         try container.encodeIfPresent(instructions, forKey: .instructions)
-        try container.encodeIfPresent(maxOutputTokens, forKey: .maxOutputTokens)
-        try container.encodeIfPresent(outputModalities, forKey: .outputModalities)
+        try container.encodeIfPresent(maxOutputTokens, forKey: .maxResponseOutputTokens)
+        try container.encodeIfPresent(outputModalities, forKey: .modalities)
+        try container.encodeIfPresent(outputAudioFormat, forKey: .outputAudioFormat)
+        try container.encodeIfPresent(speed, forKey: .speed)
         try container.encodeIfPresent(temperature, forKey: .temperature)
         try container.encodeIfPresent(tools, forKey: .tools)
         try container.encodeIfPresent(toolChoice, forKey: .toolChoice)
+        try container.encodeIfPresent(turnDetection, forKey: .turnDetection)
+        try container.encodeIfPresent(voice, forKey: .voice)
+    }
+}
 
-        let hasInputAudioConfig = inputAudioFormat != nil || inputAudioTranscription != nil || turnDetection != nil
-        let hasOutputAudioConfig = outputAudioFormat != nil || speed != nil || voice != nil
+extension OpenAIRealtimeSessionConfiguration {
+    var asGAConfiguration: OpenAIRealtimeSessionConfigurationGA {
+        OpenAIRealtimeSessionConfigurationGA(
+            type: type,
+            inputAudioFormat: inputAudioFormat,
+            inputAudioTranscription: inputAudioTranscription,
+            instructions: instructions,
+            maxOutputTokens: maxOutputTokens,
+            outputModalities: outputModalities,
+            outputAudioFormat: outputAudioFormat,
+            speed: speed,
+            tools: tools,
+            toolChoice: toolChoice,
+            turnDetection: turnDetection,
+            voice: voice
+        )
+    }
+}
 
-        if hasInputAudioConfig || hasOutputAudioConfig {
-            var audioContainer = container.nestedContainer(keyedBy: AudioCodingKeys.self, forKey: .audio)
-            if hasInputAudioConfig {
-                var inputContainer = audioContainer.nestedContainer(keyedBy: InputAudioCodingKeys.self, forKey: .input)
-                try inputContainer.encodeIfPresent(inputAudioFormat, forKey: .format)
-                try inputContainer.encodeIfPresent(inputAudioTranscription, forKey: .transcription)
-                try inputContainer.encodeIfPresent(turnDetection, forKey: .turnDetection)
-            }
-            if hasOutputAudioConfig {
-                var outputContainer = audioContainer.nestedContainer(keyedBy: OutputAudioCodingKeys.self, forKey: .output)
-                try outputContainer.encodeIfPresent(outputAudioFormat, forKey: .format)
-                try outputContainer.encodeIfPresent(speed, forKey: .speed)
-                try outputContainer.encodeIfPresent(voice, forKey: .voice)
-            }
-        }
+/// GA realtime session configuration.
+///
+/// This is the preferred public surface for GA opt-in APIs.
+nonisolated public struct OpenAIRealtimeSessionConfigurationGA: Sendable {
+    public let type: OpenAIRealtimeSessionConfiguration.SessionType
+    public let inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
+    public let inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription?
+    public let instructions: String?
+    public let maxOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens?
+    public let outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]?
+    public let outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
+    public let speed: Float?
+    public let tools: [OpenAIRealtimeSessionConfiguration.Tool]?
+    public let toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice?
+    public let turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection?
+    public let voice: String?
+
+    public init(
+        type: OpenAIRealtimeSessionConfiguration.SessionType = .realtime,
+        inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
+        inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription? = nil,
+        instructions: String? = nil,
+        maxOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens? = nil,
+        outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]? = nil,
+        outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
+        speed: Float? = 1.0,
+        tools: [OpenAIRealtimeSessionConfiguration.Tool]? = nil,
+        toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice? = nil,
+        turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection? = nil,
+        voice: String? = nil
+    ) {
+        self.type = type
+        self.inputAudioFormat = inputAudioFormat
+        self.inputAudioTranscription = inputAudioTranscription
+        self.instructions = instructions
+        self.maxOutputTokens = maxOutputTokens
+        self.outputModalities = outputModalities
+        self.outputAudioFormat = outputAudioFormat
+        self.speed = speed
+        self.tools = tools
+        self.toolChoice = toolChoice
+        self.turnDetection = turnDetection
+        self.voice = voice
+    }
+}
+
+extension OpenAIRealtimeSessionConfigurationGA {
+    var asLegacyBetaConfiguration: OpenAIRealtimeSessionConfiguration {
+        OpenAIRealtimeSessionConfiguration(
+            type: type,
+            inputAudioFormat: inputAudioFormat,
+            inputAudioTranscription: inputAudioTranscription,
+            instructions: instructions,
+            maxOutputTokens: maxOutputTokens,
+            outputModalities: outputModalities,
+            outputAudioFormat: outputAudioFormat,
+            speed: speed,
+            temperature: nil,
+            tools: tools,
+            toolChoice: toolChoice,
+            turnDetection: turnDetection,
+            voice: voice
+        )
+    }
+}
+
+/// beta-v1 realtime session configuration.
+///
+/// This exists for explicit beta-v1 usage and migration support.
+@available(*, deprecated, message: "beta-v1 is being sunset. Prefer OpenAIRealtimeSessionConfigurationGA and realtimeSessionGA.")
+nonisolated public struct OpenAIRealtimeSessionConfigurationBetaV1: Sendable {
+    public let inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
+    public let inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription?
+    public let instructions: String?
+    public let maxResponseOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens?
+    public let modalities: [OpenAIRealtimeSessionConfiguration.Modality]?
+    public let outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
+    public let speed: Float?
+    public let temperature: Double?
+    public let tools: [OpenAIRealtimeSessionConfiguration.Tool]?
+    public let toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice?
+    public let turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection?
+    public let voice: String?
+
+    public init(
+        inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
+        inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription? = nil,
+        instructions: String? = nil,
+        maxResponseOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens? = nil,
+        modalities: [OpenAIRealtimeSessionConfiguration.Modality]? = nil,
+        outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
+        speed: Float? = 1.0,
+        temperature: Double? = nil,
+        tools: [OpenAIRealtimeSessionConfiguration.Tool]? = nil,
+        toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice? = nil,
+        turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection? = nil,
+        voice: String? = nil
+    ) {
+        self.inputAudioFormat = inputAudioFormat
+        self.inputAudioTranscription = inputAudioTranscription
+        self.instructions = instructions
+        self.maxResponseOutputTokens = maxResponseOutputTokens
+        self.modalities = modalities
+        self.outputAudioFormat = outputAudioFormat
+        self.speed = speed
+        self.temperature = temperature
+        self.tools = tools
+        self.toolChoice = toolChoice
+        self.turnDetection = turnDetection
+        self.voice = voice
+    }
+}
+
+@available(*, deprecated, message: "beta-v1 is being sunset. Prefer OpenAIRealtimeSessionConfigurationGA and realtimeSessionGA.")
+extension OpenAIRealtimeSessionConfigurationBetaV1 {
+    var asLegacyBetaConfiguration: OpenAIRealtimeSessionConfiguration {
+        OpenAIRealtimeSessionConfiguration(
+            type: .realtime,
+            inputAudioFormat: inputAudioFormat,
+            inputAudioTranscription: inputAudioTranscription,
+            instructions: instructions,
+            maxOutputTokens: maxResponseOutputTokens,
+            outputModalities: modalities,
+            outputAudioFormat: outputAudioFormat,
+            speed: speed,
+            temperature: temperature,
+            tools: tools,
+            toolChoice: toolChoice,
+            turnDetection: turnDetection,
+            voice: voice
+        )
     }
 }
 

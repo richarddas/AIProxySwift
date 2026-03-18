@@ -10,15 +10,17 @@ import Testing
 struct OpenAIRealtimeGAMigrationCodableTests {
 
     @Test
-    func testSessionConfigurationDefaultsToRealtimeType() throws {
+    func testLegacySessionConfigurationEncodesBetaShapeByDefault() throws {
         let config = OpenAIRealtimeSessionConfiguration(instructions: "Hi")
         let encoded: Data = try config.serialize(pretty: false)
         let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
-        #expect(decoded.type == "realtime")
+        #expect(decoded.type == nil)
+        #expect(decoded.instructions == "Hi")
+        #expect(decoded.audio == nil)
     }
 
     @Test
-    func testSessionConfigurationCanEncodeTranscriptionType() throws {
+    func testLegacySessionConfigurationUsesTopLevelBetaAudioKeys() throws {
         let config = OpenAIRealtimeSessionConfiguration(
             type: .transcription,
             inputAudioTranscription: .init(model: "gpt-4o-mini-transcribe")
@@ -26,8 +28,9 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         let encoded: Data = try config.serialize(pretty: false)
         let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
 
-        #expect(decoded.type == "transcription")
-        #expect(decoded.audio?.input?.transcription?.model == "gpt-4o-mini-transcribe")
+        #expect(decoded.type == nil)
+        #expect(decoded.legacyInputAudioTranscription?.model == "gpt-4o-mini-transcribe")
+        #expect(decoded.audio == nil)
     }
 
     @Test
@@ -40,15 +43,15 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     @Test
-    func testSessionConfigurationEncodesGAMaxOutputTokensKey() throws {
+    func testLegacySessionConfigurationEncodesBetaMaxResponseOutputTokensKey() throws {
         let config = OpenAIRealtimeSessionConfiguration(
             maxOutputTokens: .int(321)
         )
         let encoded: Data = try config.serialize(pretty: false)
         let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
 
-        #expect(decoded.maxOutputTokens == 321)
-        #expect(decoded.legacyMaxResponseOutputTokens == nil)
+        #expect(decoded.maxOutputTokens == nil)
+        #expect(decoded.legacyMaxResponseOutputTokens == 321)
     }
 
     @Test
@@ -59,16 +62,16 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         )
         let encoded: Data = try config.serialize(pretty: false)
         let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
-        #expect(decoded.maxOutputTokens == 654)
-        #expect(decoded.outputModalities == ["text"])
-        #expect(decoded.legacyMaxResponseOutputTokens == nil)
-        #expect(decoded.modalities == nil)
+        #expect(decoded.maxOutputTokens == nil)
+        #expect(decoded.outputModalities == nil)
+        #expect(decoded.legacyMaxResponseOutputTokens == 654)
+        #expect(decoded.modalities == ["text"])
     }
 
     @Test
-    func testSessionUpdateEnvelopeUsesNestedAudioAndNoLegacyKeys() throws {
+    func testGAOptInSessionUpdateUsesNestedAudioAndNoLegacyKeys() throws {
         let update = OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(
-            from: OpenAIRealtimeSessionConfiguration(
+            from: OpenAIRealtimeSessionConfigurationGA(
                 type: .realtime,
                 inputAudioFormat: .pcm16,
                 inputAudioTranscription: .init(model: "gpt-4o-mini-transcribe"),
@@ -90,10 +93,11 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         #expect(decoded.session.legacyInputAudioFormat == nil)
         #expect(decoded.session.legacyInputAudioTranscription == nil)
         #expect(decoded.session.legacyOutputAudioFormat == nil)
+        #expect(decoded.session.temperature == nil)
     }
 
     @Test
-    func testLegacySessionUpdateInitializerRemainsGACompatible() throws {
+    func testLegacySessionUpdateInitializerRemainsBetaCompatible() throws {
         let config = OpenAIRealtimeSessionConfiguration(
             maxResponseOutputTokens: .int(42),
             modalities: [.text]
@@ -102,9 +106,10 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         let encoded: Data = try update.serialize(pretty: false)
         let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
         #expect(decoded.type == "session.update")
-        #expect(decoded.session.maxOutputTokens == 42)
-        #expect(decoded.session.outputModalities == ["text"])
-        #expect(decoded.session.modalities == nil)
+        #expect(decoded.session.maxOutputTokens == nil)
+        #expect(decoded.session.outputModalities == nil)
+        #expect(decoded.session.legacyMaxResponseOutputTokens == 42)
+        #expect(decoded.session.modalities == ["text"])
     }
 
     @Test
@@ -155,7 +160,21 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     @Test
-    func testSessionConfigurationUsesNestedAudioForGA() throws {
+    func testLegacyConfigurationEncodedAsGAOmitsTemperature() throws {
+        let config = OpenAIRealtimeSessionConfiguration(
+            outputModalities: [.audio],
+            temperature: 0.7
+        )
+        let update = OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(from: config)
+        let encoded: Data = try update.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
+
+        #expect(decoded.session.outputModalities == ["audio"])
+        #expect(decoded.session.temperature == nil)
+    }
+
+    @Test
+    func testGAConfigurationUsesNestedAudioForGA() throws {
         let config = OpenAIRealtimeSessionConfiguration(
             inputAudioFormat: .pcm16,
             inputAudioTranscription: .init(model: "gpt-4o-mini-transcribe"),
@@ -163,17 +182,17 @@ struct OpenAIRealtimeGAMigrationCodableTests {
             speed: 1.0,
             voice: "alloy"
         )
-        let encoded: Data = try config.serialize(pretty: false)
-        let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
+        let encoded: Data = try OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(from: config.asGAConfiguration).serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
 
-        #expect(decoded.audio?.input?.format == "pcm16")
-        #expect(decoded.audio?.input?.transcription?.model == "gpt-4o-mini-transcribe")
-        #expect(decoded.audio?.output?.format == "pcm16")
-        #expect(decoded.audio?.output?.speed == 1.0)
-        #expect(decoded.audio?.output?.voice == "alloy")
-        #expect(decoded.legacyInputAudioFormat == nil)
-        #expect(decoded.legacyInputAudioTranscription == nil)
-        #expect(decoded.legacyOutputAudioFormat == nil)
+        #expect(decoded.session.audio?.input?.format == "pcm16")
+        #expect(decoded.session.audio?.input?.transcription?.model == "gpt-4o-mini-transcribe")
+        #expect(decoded.session.audio?.output?.format == "pcm16")
+        #expect(decoded.session.audio?.output?.speed == 1.0)
+        #expect(decoded.session.audio?.output?.voice == "alloy")
+        #expect(decoded.session.legacyInputAudioFormat == nil)
+        #expect(decoded.session.legacyInputAudioTranscription == nil)
+        #expect(decoded.session.legacyOutputAudioFormat == nil)
     }
 
     @Test
@@ -221,6 +240,7 @@ struct OpenAIRealtimeGAMigrationCodableTests {
 
     private struct SessionConfigurationMirror: Decodable {
         let type: String?
+        let instructions: String?
         let audio: Audio?
         // beta session.update shape
         let modalities: [String]?
@@ -231,9 +251,11 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         let legacyInputAudioTranscription: InputAudioTranscription?
         let legacyOutputAudioFormat: String?
         let legacyMaxResponseOutputTokens: Int?
+        let temperature: Double?
 
         private enum CodingKeys: String, CodingKey {
             case type
+            case instructions
             case audio
             case modalities
             case outputModalities = "output_modalities"
@@ -242,6 +264,7 @@ struct OpenAIRealtimeGAMigrationCodableTests {
             case legacyInputAudioTranscription = "input_audio_transcription"
             case legacyOutputAudioFormat = "output_audio_format"
             case legacyMaxResponseOutputTokens = "max_response_output_tokens"
+            case temperature
         }
     }
 

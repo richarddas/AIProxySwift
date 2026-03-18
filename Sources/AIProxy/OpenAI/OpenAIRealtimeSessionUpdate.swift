@@ -33,8 +33,9 @@ nonisolated public struct OpenAIRealtimeSessionUpdate: Encodable {
 
     /// Deprecated initializer preserved for source compatibility.
     ///
-    /// It encodes using GA wire shape. Prefer `OpenAIRealtimeAPIVersion.makeSessionUpdate`.
-    @available(*, deprecated, message: "Use OpenAIRealtimeAPIVersion.makeSessionUpdate(from:eventID:) for explicit wire version control.")
+    /// It encodes using beta-v1 wire shape to preserve legacy behavior.
+    /// Prefer `OpenAIRealtimeAPIVersion.makeSessionUpdate` for explicit wire version control.
+    @available(*, deprecated, message: "Legacy initializer encodes beta-v1. Use OpenAIRealtimeAPIVersion.makeSessionUpdate(from:eventID:) for explicit version control.")
     public init(
         eventId: String? = nil,
         session: OpenAIRealtimeSessionConfiguration
@@ -42,7 +43,7 @@ nonisolated public struct OpenAIRealtimeSessionUpdate: Encodable {
         self.init(
             eventId: eventId,
             session: session,
-            sessionBody: .ga(.init(configuration: session))
+            sessionBody: .betaV1(.init(configuration: session))
         )
     }
 
