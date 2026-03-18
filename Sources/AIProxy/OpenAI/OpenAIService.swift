@@ -7,6 +7,8 @@
 
 import Foundation
 
+// BETA_COMPAT_SUNSET: remove this entire enum and the `apiInterface` parameter plumbing
+// when dropping realtime beta support. GA-only path no longer needs interface branching.
 public enum OpenAIRealtimeAPIInterface: Sendable {
     case ga
     case betaV1
