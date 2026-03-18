@@ -87,7 +87,11 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     public let maxResponseOutputTokens: MaxResponseOutputTokens?
 
     /// The set of modalities the model can respond with. To disable audio, set this to ["text"].
-    /// Possible values are `audio` and `text`
+    /// Possible values are `audio` and `text`.
+    ///
+    /// Note: GA `session.update` currently rejects `session.modalities` (unknown_parameter).
+    /// This SDK preserves the property for beta compatibility and strips it from GA
+    /// session update payloads.
     public let modalities: [Modality]?
 
     /// The format of output audio.
@@ -199,6 +203,32 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
                 try outputContainer.encodeIfPresent(voice, forKey: .voice)
             }
         }
+    }
+
+    nonisolated func sessionUpdateConfiguration(
+        for apiInterface: OpenAIRealtimeAPIInterface
+    ) -> OpenAIRealtimeSessionConfiguration {
+        guard apiInterface == .ga else {
+            return self
+        }
+        guard modalities != nil else {
+            return self
+        }
+        return OpenAIRealtimeSessionConfiguration(
+            type: type,
+            inputAudioFormat: inputAudioFormat,
+            inputAudioTranscription: inputAudioTranscription,
+            instructions: instructions,
+            maxResponseOutputTokens: maxResponseOutputTokens,
+            modalities: nil,
+            outputAudioFormat: outputAudioFormat,
+            speed: speed,
+            temperature: temperature,
+            tools: tools,
+            toolChoice: toolChoice,
+            turnDetection: turnDetection,
+            voice: voice
+        )
     }
 }
 

@@ -317,7 +317,8 @@ public enum OpenAIRealtimeAPIInterface: Sendable {
 
         let session = OpenAIRealtimeSession(
             connection: connection,
-            sessionConfiguration: configuration
+            sessionConfiguration: configuration,
+            apiInterface: apiInterface
         )
         session.start()
         return session
