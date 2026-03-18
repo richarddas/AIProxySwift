@@ -124,8 +124,13 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     /// changed once the model has responded with audio at least once.
     public let voice: String?
 
-    /// Output modalities for assistant responses. Set to `["text"]` to disable audio output.
-    /// Possible values are `audio` and `text`.
+    /// Output modalities for assistant responses.
+    ///
+    /// GA behavior is counterintuitive:
+    /// - `["audio"]` means audio output with transcript.
+    /// - `["text"]` means text-only output.
+    ///
+    /// Set to `["text"]` to disable audio output.
     public let outputModalities: [Modality]?
 
     /// Deprecated alias for `outputModalities`.
@@ -231,19 +236,66 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
 
 extension OpenAIRealtimeSessionConfiguration {
     var asGAConfiguration: OpenAIRealtimeSessionConfigurationGA {
-        OpenAIRealtimeSessionConfigurationGA(
+        let gaTools = tools?.map {
+            OpenAIRealtimeSessionConfigurationGA.Tool.function(
+                .init(
+                    name: $0.name,
+                    description: $0.description,
+                    parameters: $0.parameters
+                )
+            )
+        }
+        let gaToolChoice: OpenAIRealtimeSessionConfigurationGA.ToolChoice? = switch toolChoice {
+        case .some(.none):
+            OpenAIRealtimeSessionConfigurationGA.ToolChoice.none
+        case .some(.auto):
+            .auto
+        case .some(.required):
+            .required
+        case .some(.specific(let functionName)):
+            .function(name: functionName)
+        case nil:
+            nil
+        }
+        let gaTurnDetection: OpenAIRealtimeSessionConfigurationGA.TurnDetection?
+        if let turnDetection {
+            switch turnDetection.type {
+            case .serverVAD(let prefixPaddingMs, let silenceDurationMs, let threshold):
+                gaTurnDetection = .serverVAD(
+                    .init(
+                        prefixPaddingMs: prefixPaddingMs,
+                        silenceDurationMs: silenceDurationMs,
+                        threshold: threshold
+                    )
+                )
+            case .semanticVAD(let eagerness):
+                let gaEagerness: OpenAIRealtimeSessionConfigurationGA.Eagerness = switch eagerness {
+                case .low:
+                    .low
+                case .medium:
+                    .medium
+                case .high:
+                    .high
+                }
+                gaTurnDetection = .semanticVAD(.init(eagerness: gaEagerness))
+            }
+        } else {
+            gaTurnDetection = nil
+        }
+
+        return OpenAIRealtimeSessionConfigurationGA(
             type: type,
             inputAudioFormat: inputAudioFormat,
-            inputAudioTranscription: inputAudioTranscription,
+            inputAudioTranscription: inputAudioTranscription.map { .init(model: $0.model) },
             instructions: instructions,
             maxOutputTokens: maxOutputTokens,
             outputModalities: outputModalities,
             outputAudioFormat: outputAudioFormat,
             speed: speed,
-            tools: tools,
-            toolChoice: toolChoice,
-            turnDetection: turnDetection,
-            voice: voice
+            tools: gaTools,
+            toolChoice: gaToolChoice,
+            turnDetection: gaTurnDetection,
+            voice: voice.map { .builtin($0) }
         )
     }
 }
@@ -252,38 +304,57 @@ extension OpenAIRealtimeSessionConfiguration {
 ///
 /// This is the preferred public surface for GA opt-in APIs.
 nonisolated public struct OpenAIRealtimeSessionConfigurationGA: Sendable {
+    public let include: [IncludeField]?
     public let type: OpenAIRealtimeSessionConfiguration.SessionType
     public let inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
-    public let inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription?
+    public let inputAudioNoiseReduction: InputAudioNoiseReduction?
+    public let inputAudioTranscription: InputAudioTranscription?
     public let instructions: String?
     public let maxOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens?
+    public let model: String?
     public let outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]?
     public let outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
+    /// GA output speed range is 0.25...1.5.
     public let speed: Float?
-    public let tools: [OpenAIRealtimeSessionConfiguration.Tool]?
-    public let toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice?
-    public let turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection?
-    public let voice: String?
+    public let tools: [Tool]?
+    public let toolChoice: ToolChoice?
+    public let turnDetection: TurnDetection?
+    public let voice: Voice?
+    public let prompt: Prompt?
+    public let tracing: Tracing?
+    public let truncation: Truncation?
 
     public init(
+        include: [IncludeField]? = nil,
         type: OpenAIRealtimeSessionConfiguration.SessionType = .realtime,
         inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
-        inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription? = nil,
+        inputAudioNoiseReduction: InputAudioNoiseReduction? = nil,
+        inputAudioTranscription: InputAudioTranscription? = nil,
         instructions: String? = nil,
         maxOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens? = nil,
+        model: String? = nil,
         outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]? = nil,
         outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat? = nil,
         speed: Float? = 1.0,
-        tools: [OpenAIRealtimeSessionConfiguration.Tool]? = nil,
-        toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice? = nil,
-        turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection? = nil,
-        voice: String? = nil
+        tools: [Tool]? = nil,
+        toolChoice: ToolChoice? = nil,
+        turnDetection: TurnDetection? = nil,
+        voice: Voice? = nil,
+        prompt: Prompt? = nil,
+        tracing: Tracing? = nil,
+        truncation: Truncation? = nil
     ) {
+        if let speed {
+            assert((0.25...1.5).contains(speed), "GA speed must be in [0.25, 1.5]")
+        }
+        self.include = include
         self.type = type
         self.inputAudioFormat = inputAudioFormat
+        self.inputAudioNoiseReduction = inputAudioNoiseReduction
         self.inputAudioTranscription = inputAudioTranscription
         self.instructions = instructions
         self.maxOutputTokens = maxOutputTokens
+        self.model = model
         self.outputModalities = outputModalities
         self.outputAudioFormat = outputAudioFormat
         self.speed = speed
@@ -291,26 +362,549 @@ nonisolated public struct OpenAIRealtimeSessionConfigurationGA: Sendable {
         self.toolChoice = toolChoice
         self.turnDetection = turnDetection
         self.voice = voice
+        self.prompt = prompt
+        self.tracing = tracing
+        self.truncation = truncation
+    }
+
+    public static func voiceWithWebSearch(
+        voice: Voice = .builtin("alloy"),
+        searchContextSize: OpenAICreateResponseRequestBody.WebSearchTool.SearchContextSize = .medium
+    ) -> OpenAIRealtimeSessionConfigurationGA {
+        OpenAIRealtimeSessionConfigurationGA(
+            tools: [.webSearch(.init(searchContextSize: searchContextSize))],
+            toolChoice: .auto,
+            voice: voice
+        )
     }
 }
 
 extension OpenAIRealtimeSessionConfigurationGA {
     var asLegacyBetaConfiguration: OpenAIRealtimeSessionConfiguration {
-        OpenAIRealtimeSessionConfiguration(
+        let legacyTools = tools?.compactMap { tool -> OpenAIRealtimeSessionConfiguration.Tool? in
+            guard case .function(let functionTool) = tool else { return nil }
+            return .init(
+                name: functionTool.name,
+                description: functionTool.description,
+                parameters: functionTool.parameters
+            )
+        }
+        let legacyToolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice? = switch toolChoice {
+        case .some(.none):
+            OpenAIRealtimeSessionConfiguration.ToolChoice.none
+        case .some(.auto):
+            .auto
+        case .some(.required):
+            .required
+        case .some(.function(let functionName)):
+            .specific(functionName: functionName)
+        case .some(.mcp), nil:
+            nil
+        }
+        let legacyTurnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection? = turnDetection?.asLegacyBetaTurnDetection
+        let legacyInputTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription? =
+            if let model = inputAudioTranscription?.model {
+                .init(model: model)
+            } else {
+                nil
+            }
+
+        return OpenAIRealtimeSessionConfiguration(
             type: type,
             inputAudioFormat: inputAudioFormat,
-            inputAudioTranscription: inputAudioTranscription,
+            inputAudioTranscription: legacyInputTranscription,
             instructions: instructions,
             maxOutputTokens: maxOutputTokens,
             outputModalities: outputModalities,
             outputAudioFormat: outputAudioFormat,
             speed: speed,
             temperature: nil,
-            tools: tools,
-            toolChoice: toolChoice,
-            turnDetection: turnDetection,
-            voice: voice
+            tools: legacyTools,
+            toolChoice: legacyToolChoice,
+            turnDetection: legacyTurnDetection,
+            voice: voice?.asLegacyBetaVoice
         )
+    }
+}
+
+extension OpenAIRealtimeSessionConfigurationGA {
+    nonisolated public enum IncludeField: String, Encodable, Sendable {
+        case inputAudioTranscriptionLogprobs = "item.input_audio_transcription.logprobs"
+    }
+
+    nonisolated public struct InputAudioNoiseReduction: Encodable, Sendable {
+        public let type: NoiseReductionType
+        public init(type: NoiseReductionType) {
+            self.type = type
+        }
+    }
+
+    nonisolated public enum NoiseReductionType: String, Encodable, Sendable {
+        case nearField = "near_field"
+        case farField = "far_field"
+    }
+
+    nonisolated public struct InputAudioTranscription: Encodable, Sendable {
+        public let language: String?
+        public let model: String?
+        public let prompt: String?
+        public init(language: String? = nil, model: String? = nil, prompt: String? = nil) {
+            self.language = language
+            self.model = model
+            self.prompt = prompt
+        }
+    }
+
+    nonisolated public enum Voice: Encodable, Sendable {
+        case builtin(String)
+        case custom(id: String)
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .builtin(let value):
+                var container = encoder.singleValueContainer()
+                try container.encode(value)
+            case .custom(let id):
+                var container = encoder.container(keyedBy: CustomVoiceCodingKeys.self)
+                try container.encode(id, forKey: .id)
+            }
+        }
+
+        var asLegacyBetaVoice: String {
+            switch self {
+            case .builtin(let value):
+                value
+            case .custom(let id):
+                id
+            }
+        }
+
+        private enum CustomVoiceCodingKeys: String, CodingKey {
+            case id
+        }
+    }
+
+    nonisolated public struct Prompt: Encodable, Sendable {
+        public let id: String
+        public let variables: [String: AIProxyJSONValue]?
+        public let version: String?
+
+        public init(
+            id: String,
+            variables: [String: AIProxyJSONValue]? = nil,
+            version: String? = nil
+        ) {
+            self.id = id
+            self.variables = variables
+            self.version = version
+        }
+    }
+
+    nonisolated public enum Tracing: Encodable, Sendable {
+        case auto
+        case configuration(TracingConfiguration)
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .auto:
+                var container = encoder.singleValueContainer()
+                try container.encode("auto")
+            case .configuration(let configuration):
+                try configuration.encode(to: encoder)
+            }
+        }
+    }
+
+    nonisolated public struct TracingConfiguration: Encodable, Sendable {
+        public let groupID: String?
+        public let metadata: [String: AIProxyJSONValue]?
+        public let workflowName: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case groupID = "group_id"
+            case metadata
+            case workflowName = "workflow_name"
+        }
+
+        public init(
+            groupID: String? = nil,
+            metadata: [String: AIProxyJSONValue]? = nil,
+            workflowName: String? = nil
+        ) {
+            self.groupID = groupID
+            self.metadata = metadata
+            self.workflowName = workflowName
+        }
+    }
+
+    nonisolated public enum Truncation: Encodable, Sendable {
+        case auto
+        case disabled
+        case retentionRatio(RetentionRatioTruncation)
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .auto:
+                var container = encoder.singleValueContainer()
+                try container.encode("auto")
+            case .disabled:
+                var container = encoder.singleValueContainer()
+                try container.encode("disabled")
+            case .retentionRatio(let truncation):
+                try truncation.encode(to: encoder)
+            }
+        }
+    }
+
+    nonisolated public struct RetentionRatioTruncation: Encodable, Sendable {
+        public let retentionRatio: Double
+        public let tokenLimits: TokenLimits?
+        public let type = "retention_ratio"
+
+        private enum CodingKeys: String, CodingKey {
+            case retentionRatio = "retention_ratio"
+            case tokenLimits = "token_limits"
+            case type
+        }
+
+        public init(
+            retentionRatio: Double,
+            tokenLimits: TokenLimits? = nil
+        ) {
+            self.retentionRatio = retentionRatio
+            self.tokenLimits = tokenLimits
+        }
+    }
+
+    nonisolated public struct TokenLimits: Encodable, Sendable {
+        public let postInstructions: Int?
+
+        private enum CodingKeys: String, CodingKey {
+            case postInstructions = "post_instructions"
+        }
+
+        public init(postInstructions: Int? = nil) {
+            self.postInstructions = postInstructions
+        }
+    }
+
+    nonisolated public enum Tool: Encodable, Sendable {
+        case function(FunctionTool)
+        case mcp(MCPTool)
+        case webSearch(OpenAICreateResponseRequestBody.WebSearchTool)
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .function(let functionTool):
+                try functionTool.encode(to: encoder)
+            case .mcp(let mcpTool):
+                try mcpTool.encode(to: encoder)
+            case .webSearch(let webSearchTool):
+                try webSearchTool.encode(to: encoder)
+            }
+        }
+    }
+
+    nonisolated public struct FunctionTool: Encodable, Sendable {
+        public let name: String
+        public let description: String
+        public let parameters: [String: AIProxyJSONValue]
+
+        public init(name: String, description: String, parameters: [String: AIProxyJSONValue]) {
+            self.name = name
+            self.description = description
+            self.parameters = parameters
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case description
+            case parameters
+            case type
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode("function", forKey: .type)
+            try container.encode(name, forKey: .name)
+            try container.encode(description, forKey: .description)
+            try container.encode(parameters, forKey: .parameters)
+        }
+    }
+
+    nonisolated public struct MCPTool: Encodable, Sendable {
+        public let serverLabel: String
+        public let allowedTools: AllowedTools?
+        public let authorization: String?
+        public let connectorID: String?
+        public let deferLoading: Bool?
+        public let headers: [String: String]?
+        public let requireApproval: RequireApproval?
+        public let serverDescription: String?
+        public let serverURL: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case allowedTools = "allowed_tools"
+            case authorization
+            case connectorID = "connector_id"
+            case deferLoading = "defer_loading"
+            case headers
+            case name
+            case requireApproval = "require_approval"
+            case serverDescription = "server_description"
+            case serverLabel = "server_label"
+            case serverURL = "server_url"
+            case type
+        }
+
+        public init(
+            serverLabel: String,
+            allowedTools: AllowedTools? = nil,
+            authorization: String? = nil,
+            connectorID: String? = nil,
+            deferLoading: Bool? = nil,
+            headers: [String: String]? = nil,
+            requireApproval: RequireApproval? = nil,
+            serverDescription: String? = nil,
+            serverURL: String? = nil
+        ) {
+            self.serverLabel = serverLabel
+            self.allowedTools = allowedTools
+            self.authorization = authorization
+            self.connectorID = connectorID
+            self.deferLoading = deferLoading
+            self.headers = headers
+            self.requireApproval = requireApproval
+            self.serverDescription = serverDescription
+            self.serverURL = serverURL
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode("mcp", forKey: .type)
+            try container.encode(serverLabel, forKey: .serverLabel)
+            try container.encodeIfPresent(allowedTools, forKey: .allowedTools)
+            try container.encodeIfPresent(authorization, forKey: .authorization)
+            try container.encodeIfPresent(connectorID, forKey: .connectorID)
+            try container.encodeIfPresent(deferLoading, forKey: .deferLoading)
+            try container.encodeIfPresent(headers, forKey: .headers)
+            try container.encodeIfPresent(requireApproval, forKey: .requireApproval)
+            try container.encodeIfPresent(serverDescription, forKey: .serverDescription)
+            try container.encodeIfPresent(serverURL, forKey: .serverURL)
+        }
+    }
+
+    nonisolated public enum AllowedTools: Encodable, Sendable {
+        case names([String])
+        case filter(ToolFilter)
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .names(let names):
+                var container = encoder.singleValueContainer()
+                try container.encode(names)
+            case .filter(let filter):
+                try filter.encode(to: encoder)
+            }
+        }
+    }
+
+    nonisolated public struct ToolFilter: Encodable, Sendable {
+        public let readOnly: Bool?
+        public let toolNames: [String]?
+
+        private enum CodingKeys: String, CodingKey {
+            case readOnly = "read_only"
+            case toolNames = "tool_names"
+        }
+
+        public init(readOnly: Bool? = nil, toolNames: [String]? = nil) {
+            self.readOnly = readOnly
+            self.toolNames = toolNames
+        }
+    }
+
+    nonisolated public enum RequireApproval: Encodable, Sendable {
+        case always
+        case never
+        case filter(ApprovalFilter)
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .always:
+                var container = encoder.singleValueContainer()
+                try container.encode("always")
+            case .never:
+                var container = encoder.singleValueContainer()
+                try container.encode("never")
+            case .filter(let filter):
+                try filter.encode(to: encoder)
+            }
+        }
+    }
+
+    nonisolated public struct ApprovalFilter: Encodable, Sendable {
+        public let always: ToolFilter?
+        public let never: ToolFilter?
+
+        public init(always: ToolFilter? = nil, never: ToolFilter? = nil) {
+            self.always = always
+            self.never = never
+        }
+    }
+
+    nonisolated public enum ToolChoice: Encodable, Sendable {
+        case none
+        case auto
+        case required
+        case function(name: String)
+        case mcp(serverLabel: String, name: String?)
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case serverLabel = "server_label"
+            case type
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            switch self {
+            case .none:
+                var container = encoder.singleValueContainer()
+                try container.encode("none")
+            case .auto:
+                var container = encoder.singleValueContainer()
+                try container.encode("auto")
+            case .required:
+                var container = encoder.singleValueContainer()
+                try container.encode("required")
+            case .function(let name):
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode("function", forKey: .type)
+                try container.encode(name, forKey: .name)
+            case .mcp(let serverLabel, let name):
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode("mcp", forKey: .type)
+                try container.encode(serverLabel, forKey: .serverLabel)
+                try container.encodeIfPresent(name, forKey: .name)
+            }
+        }
+    }
+
+    nonisolated public enum TurnDetection: Encodable, Sendable {
+        case serverVAD(ServerVAD)
+        case semanticVAD(SemanticVAD)
+
+        private enum CodingKeys: String, CodingKey {
+            case createResponse = "create_response"
+            case eagerness
+            case idleTimeoutMs = "idle_timeout_ms"
+            case interruptResponse = "interrupt_response"
+            case prefixPaddingMs = "prefix_padding_ms"
+            case silenceDurationMs = "silence_duration_ms"
+            case threshold
+            case type
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .serverVAD(let serverVAD):
+                try container.encode("server_vad", forKey: .type)
+                try container.encodeIfPresent(serverVAD.createResponse, forKey: .createResponse)
+                try container.encodeIfPresent(serverVAD.idleTimeoutMs, forKey: .idleTimeoutMs)
+                try container.encodeIfPresent(serverVAD.interruptResponse, forKey: .interruptResponse)
+                try container.encodeIfPresent(serverVAD.prefixPaddingMs, forKey: .prefixPaddingMs)
+                try container.encodeIfPresent(serverVAD.silenceDurationMs, forKey: .silenceDurationMs)
+                try container.encodeIfPresent(serverVAD.threshold, forKey: .threshold)
+            case .semanticVAD(let semanticVAD):
+                try container.encode("semantic_vad", forKey: .type)
+                try container.encodeIfPresent(semanticVAD.createResponse, forKey: .createResponse)
+                try container.encodeIfPresent(semanticVAD.interruptResponse, forKey: .interruptResponse)
+                try container.encodeIfPresent(semanticVAD.eagerness, forKey: .eagerness)
+            }
+        }
+
+        var asLegacyBetaTurnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection? {
+            switch self {
+            case .serverVAD(let serverVAD):
+                guard
+                    let prefixPaddingMs = serverVAD.prefixPaddingMs,
+                    let silenceDurationMs = serverVAD.silenceDurationMs,
+                    let threshold = serverVAD.threshold
+                else {
+                    return nil
+                }
+                return .init(
+                    type: .serverVAD(
+                        prefixPaddingMs: prefixPaddingMs,
+                        silenceDurationMs: silenceDurationMs,
+                        threshold: threshold
+                    )
+                )
+            case .semanticVAD(let semanticVAD):
+                guard let eagerness = semanticVAD.eagerness else {
+                    return nil
+                }
+                let legacyEagerness: OpenAIRealtimeSessionConfiguration.TurnDetection.DetectionType.Eagerness
+                switch eagerness {
+                case .auto, .medium:
+                    legacyEagerness = .medium
+                case .low:
+                    legacyEagerness = .low
+                case .high:
+                    legacyEagerness = .high
+                }
+                return .init(type: .semanticVAD(eagerness: legacyEagerness))
+            }
+        }
+    }
+
+    nonisolated public struct ServerVAD: Encodable, Sendable {
+        public let createResponse: Bool?
+        public let idleTimeoutMs: Int?
+        public let interruptResponse: Bool?
+        public let prefixPaddingMs: Int?
+        public let silenceDurationMs: Int?
+        public let threshold: Double?
+
+        public init(
+            createResponse: Bool? = nil,
+            idleTimeoutMs: Int? = nil,
+            interruptResponse: Bool? = nil,
+            prefixPaddingMs: Int? = nil,
+            silenceDurationMs: Int? = nil,
+            threshold: Double? = nil
+        ) {
+            self.createResponse = createResponse
+            self.idleTimeoutMs = idleTimeoutMs
+            self.interruptResponse = interruptResponse
+            self.prefixPaddingMs = prefixPaddingMs
+            self.silenceDurationMs = silenceDurationMs
+            self.threshold = threshold
+        }
+    }
+
+    nonisolated public struct SemanticVAD: Encodable, Sendable {
+        public let createResponse: Bool?
+        public let eagerness: Eagerness?
+        public let interruptResponse: Bool?
+
+        public init(
+            createResponse: Bool? = nil,
+            eagerness: Eagerness? = nil,
+            interruptResponse: Bool? = nil
+        ) {
+            self.createResponse = createResponse
+            self.eagerness = eagerness
+            self.interruptResponse = interruptResponse
+        }
+    }
+
+    nonisolated public enum Eagerness: String, Encodable, Sendable {
+        case low
+        case medium
+        case high
+        case auto
     }
 }
 

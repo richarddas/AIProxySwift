@@ -7,8 +7,9 @@ import Foundation
 /// Realtime API wire version.
 ///
 /// Field contract by interface:
-/// - GA (`session.update.session`): `type`, `audio`, `instructions`, `max_output_tokens`,
-///   `output_modalities`, `tools`, `tool_choice`
+/// - GA (`session.update.session`): `type`, `include`, `audio`, `instructions`, `model`,
+///   `max_output_tokens`, `output_modalities`, `prompt`, `tracing`, `truncation`, `tools`,
+///   `tool_choice`
 /// - beta-v1 (`session.update.session`): `input_audio_format`, `input_audio_transcription`,
 ///   `instructions`, `max_response_output_tokens`, `modalities`, `output_audio_format`,
 ///   `speed`, `temperature`, `tools`, `tool_choice`, `turn_detection`, `voice`
@@ -89,25 +90,34 @@ enum OpenAIRealtimeSessionUpdateBody: Encodable, Sendable {
 
 // MARK: - GA Session Configuration
 struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
+    let include: [OpenAIRealtimeSessionConfigurationGA.IncludeField]?
     let type: OpenAIRealtimeSessionConfiguration.SessionType
     let inputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
-    let inputAudioTranscription: OpenAIRealtimeSessionConfiguration.InputAudioTranscription?
+    let inputAudioNoiseReduction: OpenAIRealtimeSessionConfigurationGA.InputAudioNoiseReduction?
+    let inputAudioTranscription: OpenAIRealtimeSessionConfigurationGA.InputAudioTranscription?
     let instructions: String?
     let maxOutputTokens: OpenAIRealtimeSessionConfiguration.MaxOutputTokens?
+    let model: String?
     let outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]?
     let outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
     let speed: Float?
-    let tools: [OpenAIRealtimeSessionConfiguration.Tool]?
-    let toolChoice: OpenAIRealtimeSessionConfiguration.ToolChoice?
-    let turnDetection: OpenAIRealtimeSessionConfiguration.TurnDetection?
-    let voice: String?
+    let tools: [OpenAIRealtimeSessionConfigurationGA.Tool]?
+    let toolChoice: OpenAIRealtimeSessionConfigurationGA.ToolChoice?
+    let turnDetection: OpenAIRealtimeSessionConfigurationGA.TurnDetection?
+    let voice: OpenAIRealtimeSessionConfigurationGA.Voice?
+    let prompt: OpenAIRealtimeSessionConfigurationGA.Prompt?
+    let tracing: OpenAIRealtimeSessionConfigurationGA.Tracing?
+    let truncation: OpenAIRealtimeSessionConfigurationGA.Truncation?
 
     init(configuration: OpenAIRealtimeSessionConfigurationGA) {
+        self.include = configuration.include
         self.type = configuration.type
         self.inputAudioFormat = configuration.inputAudioFormat
+        self.inputAudioNoiseReduction = configuration.inputAudioNoiseReduction
         self.inputAudioTranscription = configuration.inputAudioTranscription
         self.instructions = configuration.instructions
         self.maxOutputTokens = configuration.maxOutputTokens
+        self.model = configuration.model
         self.outputModalities = configuration.outputModalities
         self.outputAudioFormat = configuration.outputAudioFormat
         self.speed = configuration.speed
@@ -115,14 +125,22 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
         self.toolChoice = configuration.toolChoice
         self.turnDetection = configuration.turnDetection
         self.voice = configuration.voice
+        self.prompt = configuration.prompt
+        self.tracing = configuration.tracing
+        self.truncation = configuration.truncation
     }
 
     private enum CodingKeys: String, CodingKey {
+        case include
         case type
         case audio
         case instructions
         case maxOutputTokens = "max_output_tokens"
+        case model
         case outputModalities = "output_modalities"
+        case prompt
+        case tracing
+        case truncation
         case tools
         case toolChoice = "tool_choice"
     }
@@ -134,6 +152,7 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
 
     private enum InputAudioCodingKeys: String, CodingKey {
         case format
+        case noiseReduction = "noise_reduction"
         case transcription
         case turnDetection = "turn_detection"
     }
@@ -144,17 +163,43 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
         case voice
     }
 
+    /// GA `audio.*.format` is an object union (`audio/pcm`, `audio/pcmu`, `audio/pcma`),
+    /// while legacy/beta shapes used string enums (`pcm16`, `g711_*`).
+    private struct RealtimeAudioFormatWire: Encodable, Sendable {
+        let type: String
+        let rate: Int?
+
+        init(_ format: OpenAIRealtimeSessionConfiguration.AudioFormat) {
+            switch format {
+            case .pcm16:
+                self.type = "audio/pcm"
+                self.rate = 24000
+            case .g711Ulaw:
+                self.type = "audio/pcmu"
+                self.rate = nil
+            case .g711Alaw:
+                self.type = "audio/pcma"
+                self.rate = nil
+            }
+        }
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)
+        try container.encodeIfPresent(include, forKey: .include)
         try container.encodeIfPresent(instructions, forKey: .instructions)
         try container.encodeIfPresent(maxOutputTokens, forKey: .maxOutputTokens)
+        try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(outputModalities, forKey: .outputModalities)
+        try container.encodeIfPresent(prompt, forKey: .prompt)
+        try container.encodeIfPresent(tracing, forKey: .tracing)
+        try container.encodeIfPresent(truncation, forKey: .truncation)
         try container.encodeIfPresent(tools, forKey: .tools)
         try container.encodeIfPresent(toolChoice, forKey: .toolChoice)
 
         let hasInputAudioConfig =
-            inputAudioFormat != nil || inputAudioTranscription != nil || turnDetection != nil
+            inputAudioFormat != nil || inputAudioNoiseReduction != nil || inputAudioTranscription != nil || turnDetection != nil
         let hasOutputAudioConfig =
             outputAudioFormat != nil || speed != nil || voice != nil
 
@@ -168,7 +213,13 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
                     keyedBy: InputAudioCodingKeys.self,
                     forKey: .input
                 )
-                try inputContainer.encodeIfPresent(inputAudioFormat, forKey: .format)
+                if let inputAudioFormat {
+                    try inputContainer.encode(
+                        RealtimeAudioFormatWire(inputAudioFormat),
+                        forKey: .format
+                    )
+                }
+                try inputContainer.encodeIfPresent(inputAudioNoiseReduction, forKey: .noiseReduction)
                 try inputContainer.encodeIfPresent(inputAudioTranscription, forKey: .transcription)
                 try inputContainer.encodeIfPresent(turnDetection, forKey: .turnDetection)
             }
@@ -177,7 +228,12 @@ struct OpenAIRealtimeSessionConfigurationGAWire: Encodable, Sendable {
                     keyedBy: OutputAudioCodingKeys.self,
                     forKey: .output
                 )
-                try outputContainer.encodeIfPresent(outputAudioFormat, forKey: .format)
+                if let outputAudioFormat {
+                    try outputContainer.encode(
+                        RealtimeAudioFormatWire(outputAudioFormat),
+                        forKey: .format
+                    )
+                }
                 try outputContainer.encodeIfPresent(speed, forKey: .speed)
                 try outputContainer.encodeIfPresent(voice, forKey: .voice)
             }
