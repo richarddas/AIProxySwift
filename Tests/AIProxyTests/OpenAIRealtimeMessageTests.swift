@@ -3,23 +3,31 @@
 //  AIProxyTests
 //
 
-import XCTest
+import Foundation
+import Testing
 @testable import AIProxy
 
-final class OpenAIRealtimeMessageTests: XCTestCase {
+/// GA migration compatibility subset:
+/// - Verifies selected GA canonical event names decode as expected.
+/// - Verifies selected legacy aliases remain decodable for compatibility.
+/// This suite is intentionally not a full realtime event matrix.
+struct OpenAIRealtimeMessageTests {
 
+    @Test
     func testResponseOutputAudioDeltaIsDecodable() throws {
         let event = try decode(
             #"{"type":"response.output_audio.delta","delta":"AQID","response_id":"resp_1","event_id":"event_1"}"#
         )
 
         guard case .responseAudioDelta(let payload) = event else {
-            return XCTFail("Expected responseAudioDelta")
+            Issue.record("Expected responseAudioDelta")
+            return
         }
-        XCTAssertEqual(payload.base64Audio, "AQID")
-        XCTAssertEqual(payload.responseID, "resp_1")
+        #expect(payload.base64Audio == "AQID")
+        #expect(payload.responseID == "resp_1")
     }
 
+    @Test
     func testConversationItemAddedAndDoneAreDecodable() throws {
         let added = try decode(
             #"{"type":"conversation.item.added","event_id":"event_2","item":{"id":"msg_1","role":"assistant"},"previous_item_id":"msg_0"}"#
@@ -29,46 +37,53 @@ final class OpenAIRealtimeMessageTests: XCTestCase {
         )
 
         guard case .conversationItemAdded(let addedPayload) = added else {
-            return XCTFail("Expected conversationItemAdded")
+            Issue.record("Expected conversationItemAdded")
+            return
         }
-        XCTAssertEqual(addedPayload.itemID, "msg_1")
-        XCTAssertEqual(addedPayload.role, "assistant")
-        XCTAssertEqual(addedPayload.previousItemID, "msg_0")
+        #expect(addedPayload.itemID == "msg_1")
+        #expect(addedPayload.role == "assistant")
+        #expect(addedPayload.previousItemID == "msg_0")
 
         guard case .conversationItemDone(let donePayload) = done else {
-            return XCTFail("Expected conversationItemDone")
+            Issue.record("Expected conversationItemDone")
+            return
         }
-        XCTAssertEqual(donePayload.itemID, "msg_1")
-        XCTAssertEqual(donePayload.role, "assistant")
-        XCTAssertEqual(donePayload.previousItemID, "msg_0")
+        #expect(donePayload.itemID == "msg_1")
+        #expect(donePayload.role == "assistant")
+        #expect(donePayload.previousItemID == "msg_0")
     }
 
+    @Test
     func testInputAudioBufferTimeoutTriggeredIsDecodable() throws {
         let event = try decode(
             #"{"type":"input_audio_buffer.timeout_triggered","event_id":"event_4","item_id":"item_1","audio_start_ms":1200,"audio_end_ms":2400}"#
         )
 
         guard case .inputAudioBufferTimeoutTriggered(let payload) = event else {
-            return XCTFail("Expected inputAudioBufferTimeoutTriggered")
+            Issue.record("Expected inputAudioBufferTimeoutTriggered")
+            return
         }
-        XCTAssertEqual(payload.itemID, "item_1")
-        XCTAssertEqual(payload.audioStartMS, 1200)
-        XCTAssertEqual(payload.audioEndMS, 2400)
-        XCTAssertEqual(payload.eventID, "event_4")
+        #expect(payload.itemID == "item_1")
+        #expect(payload.audioStartMS == 1200)
+        #expect(payload.audioEndMS == 2400)
+        #expect(payload.eventID == "event_4")
     }
 
+    @Test
     func testInputAudioBufferDTMFEventReceivedIsDecodable() throws {
         let event = try decode(
             #"{"type":"input_audio_buffer.dtmf_event_received","event":"5","received_at":1743985938}"#
         )
 
         guard case .inputAudioBufferDTMFEventReceived(let payload) = event else {
-            return XCTFail("Expected inputAudioBufferDTMFEventReceived")
+            Issue.record("Expected inputAudioBufferDTMFEventReceived")
+            return
         }
-        XCTAssertEqual(payload.event, "5")
-        XCTAssertEqual(payload.receivedAt, 1743985938)
+        #expect(payload.event == "5")
+        #expect(payload.receivedAt == 1743985938)
     }
 
+    @Test
     func testTranscriptDeltasRemainDecodableAcrossInterleavedLifecycleEvents() throws {
         let lines: [String] = [
             #"{"type":"conversation.item.added","event_id":"event_10","item":{"id":"assistant_item","role":"assistant"},"previous_item_id":"user_item"}"#,
@@ -93,10 +108,11 @@ final class OpenAIRealtimeMessageTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(assembled, "Hello")
-        XCTAssertEqual(finalTranscript, "Hello")
+        #expect(assembled == "Hello")
+        #expect(finalTranscript == "Hello")
     }
 
+    @Test
     func testResponseOutputTextEventsAreDecodable() throws {
         let deltaEvent = try decode(
             #"{"type":"response.output_text.delta","event_id":"event_21","response_id":"resp_11","item_id":"assistant_item","output_index":0,"content_index":0,"delta":"Hi"}"#
@@ -106,18 +122,21 @@ final class OpenAIRealtimeMessageTests: XCTestCase {
         )
 
         guard case .responseTextDelta(let deltaPayload) = deltaEvent else {
-            return XCTFail("Expected responseTextDelta")
+            Issue.record("Expected responseTextDelta")
+            return
         }
-        XCTAssertEqual(deltaPayload.delta, "Hi")
-        XCTAssertEqual(deltaPayload.itemID, "assistant_item")
+        #expect(deltaPayload.delta == "Hi")
+        #expect(deltaPayload.itemID == "assistant_item")
 
         guard case .responseTextDone(let donePayload) = doneEvent else {
-            return XCTFail("Expected responseTextDone")
+            Issue.record("Expected responseTextDone")
+            return
         }
-        XCTAssertEqual(donePayload.text, "Hi there")
-        XCTAssertEqual(donePayload.itemID, "assistant_item")
+        #expect(donePayload.text == "Hi there")
+        #expect(donePayload.itemID == "assistant_item")
     }
 
+    @Test
     func testLegacyResponseTextEventsRemainDecodableForCompatibility() throws {
         let deltaEvent = try decode(
             #"{"type":"response.text.delta","event_id":"event_23","response_id":"resp_12","item_id":"assistant_item","output_index":0,"content_index":0,"delta":"A"}"#
@@ -127,14 +146,16 @@ final class OpenAIRealtimeMessageTests: XCTestCase {
         )
 
         guard case .responseTextDelta(let deltaPayload) = deltaEvent else {
-            return XCTFail("Expected legacy responseTextDelta")
+            Issue.record("Expected legacy responseTextDelta")
+            return
         }
-        XCTAssertEqual(deltaPayload.delta, "A")
+        #expect(deltaPayload.delta == "A")
 
         guard case .responseTextDone(let donePayload) = doneEvent else {
-            return XCTFail("Expected legacy responseTextDone")
+            Issue.record("Expected legacy responseTextDone")
+            return
         }
-        XCTAssertEqual(donePayload.text, "AB")
+        #expect(donePayload.text == "AB")
     }
 
     private func decode(_ json: String) throws -> OpenAIRealtimeMessage {
