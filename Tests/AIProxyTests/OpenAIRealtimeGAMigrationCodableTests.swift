@@ -30,20 +30,19 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         #expect(decoded.audio?.input?.transcription?.model == "gpt-4o-mini-transcribe")
     }
 
-    // BETA_COMPAT_SUNSET: remove this test when dropping realtime beta support.
     @Test
     func testRealtimeAPIInterfaceAppliesBetaHeaderOnlyForBetaV1() {
-        let gaHeaders = OpenAIRealtimeAPIInterface.ga.realtimeHeaders
+        let gaHeaders = OpenAIRealtimeAPIVersion.ga.requestHeaders
         #expect(gaHeaders["openai-beta"] == nil)
 
-        let betaHeaders = OpenAIRealtimeAPIInterface.betaV1.realtimeHeaders
+        let betaHeaders = OpenAIRealtimeAPIVersion.betaV1.requestHeaders
         #expect(betaHeaders["openai-beta"] == "realtime=v1")
     }
 
     @Test
     func testSessionConfigurationEncodesGAMaxOutputTokensKey() throws {
         let config = OpenAIRealtimeSessionConfiguration(
-            maxResponseOutputTokens: .int(321)
+            maxOutputTokens: .int(321)
         )
         let encoded: Data = try config.serialize(pretty: false)
         let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
@@ -53,9 +52,23 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     @Test
+    func testLegacySessionConfigurationInitializerLabelsRemainSupported() throws {
+        let config = OpenAIRealtimeSessionConfiguration(
+            maxResponseOutputTokens: .int(654),
+            modalities: [.text]
+        )
+        let encoded: Data = try config.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionConfigurationMirror.self, from: encoded)
+        #expect(decoded.maxOutputTokens == 654)
+        #expect(decoded.outputModalities == ["text"])
+        #expect(decoded.legacyMaxResponseOutputTokens == nil)
+        #expect(decoded.modalities == nil)
+    }
+
+    @Test
     func testSessionUpdateEnvelopeUsesNestedAudioAndNoLegacyKeys() throws {
-        let update = OpenAIRealtimeSessionUpdate(
-            session: OpenAIRealtimeSessionConfiguration(
+        let update = OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(
+            from: OpenAIRealtimeSessionConfiguration(
                 type: .realtime,
                 inputAudioFormat: .pcm16,
                 inputAudioTranscription: .init(model: "gpt-4o-mini-transcribe"),
@@ -80,28 +93,65 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     }
 
     @Test
-    func testSessionUpdateModalitiesMapToOutputModalitiesForGAAndStayModalitiesForBeta() throws {
-        // BETA_COMPAT_SUNSET: remove beta-shape assertions when dropping realtime beta support.
+    func testLegacySessionUpdateInitializerRemainsGACompatible() throws {
         let config = OpenAIRealtimeSessionConfiguration(
-            type: .realtime,
+            maxResponseOutputTokens: .int(42),
             modalities: [.text]
         )
+        let update = OpenAIRealtimeSessionUpdate(session: config)
+        let encoded: Data = try update.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
+        #expect(decoded.type == "session.update")
+        #expect(decoded.session.maxOutputTokens == 42)
+        #expect(decoded.session.outputModalities == ["text"])
+        #expect(decoded.session.modalities == nil)
+    }
 
-        let gaUpdate = OpenAIRealtimeSessionUpdate(
-            session: config.sessionUpdateConfiguration(for: .ga)
+    @Test
+    func testSessionUpdateModalitiesMapToOutputModalitiesForGAAndStayModalitiesForBeta() throws {
+        let config = OpenAIRealtimeSessionConfiguration(
+            type: .realtime,
+            outputModalities: [.text]
         )
+
+        let gaUpdate = OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(from: config)
         let gaEncoded: Data = try gaUpdate.serialize(pretty: false)
         let gaDecoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: gaEncoded)
         #expect(gaDecoded.session.outputModalities == ["text"])
         #expect(gaDecoded.session.modalities == nil)
 
-        let betaUpdate = OpenAIRealtimeSessionUpdate(
-            session: config.sessionUpdateConfiguration(for: .betaV1)
-        )
+        let betaUpdate = OpenAIRealtimeAPIVersion.betaV1.makeSessionUpdate(from: config)
         let betaEncoded: Data = try betaUpdate.serialize(pretty: false)
         let betaDecoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: betaEncoded)
         #expect(betaDecoded.session.outputModalities == nil)
         #expect(betaDecoded.session.modalities == ["text"])
+    }
+
+    @Test
+    func testBetaSessionUpdateUsesLegacyKeysAndOmitsGAOnlyShape() throws {
+        let config = OpenAIRealtimeSessionConfiguration(
+            type: .realtime,
+            inputAudioFormat: .pcm16,
+            inputAudioTranscription: .init(model: "gpt-4o-mini-transcribe"),
+            maxOutputTokens: .int(456),
+            outputModalities: [.audio, .text],
+            outputAudioFormat: .pcm16,
+            speed: 1.0,
+            voice: "alloy"
+        )
+        let betaUpdate = OpenAIRealtimeAPIVersion.betaV1.makeSessionUpdate(from: config)
+        let encoded: Data = try betaUpdate.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(SessionUpdateMirror.self, from: encoded)
+
+        #expect(decoded.session.type == nil)
+        #expect(decoded.session.audio == nil)
+        #expect(decoded.session.modalities == ["audio", "text"])
+        #expect(decoded.session.outputModalities == nil)
+        #expect(decoded.session.maxOutputTokens == nil)
+        #expect(decoded.session.legacyMaxResponseOutputTokens == 456)
+        #expect(decoded.session.legacyInputAudioFormat == "pcm16")
+        #expect(decoded.session.legacyInputAudioTranscription?.model == "gpt-4o-mini-transcribe")
+        #expect(decoded.session.legacyOutputAudioFormat == "pcm16")
     }
 
     @Test
@@ -172,9 +222,9 @@ struct OpenAIRealtimeGAMigrationCodableTests {
     private struct SessionConfigurationMirror: Decodable {
         let type: String?
         let audio: Audio?
-        // BETA_COMPAT_SUNSET: beta session.update shape.
+        // beta session.update shape
         let modalities: [String]?
-        // BETA_COMPAT_SUNSET: GA session.update shape.
+        // GA session.update shape
         let outputModalities: [String]?
         let maxOutputTokens: Int?
         let legacyInputAudioFormat: String?

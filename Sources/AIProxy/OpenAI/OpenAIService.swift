@@ -19,22 +19,6 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
     )
 }
 
-// BETA_COMPAT_SUNSET: remove this entire enum and the `apiInterface` parameter plumbing
-// when dropping realtime beta support. GA-only path no longer needs interface branching.
-public enum OpenAIRealtimeAPIInterface: Sendable {
-    case ga
-    case betaV1
-
-    var realtimeHeaders: [String: String] {
-        switch self {
-        case .ga:
-            return [:]
-        case .betaV1:
-            return ["openai-beta": "realtime=v1"]
-        }
-    }
-}
-
 @AIProxyActor public class OpenAIService: Sendable {
     private let requestFormat: OpenAIRequestFormat
     private let requestBuilder: AIProxyRequestBuilder
@@ -275,7 +259,7 @@ public enum OpenAIRealtimeAPIInterface: Sendable {
         model: String,
         configuration: OpenAIRealtimeSessionConfiguration,
         logLevel: AIProxyLogLevel,
-        apiInterface: OpenAIRealtimeAPIInterface = .ga
+        apiVersion: OpenAIRealtimeAPIVersion = .ga
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
 
@@ -284,7 +268,7 @@ public enum OpenAIRealtimeAPIInterface: Sendable {
         let request = try await self.requestBuilder.plainGET(
             path: "/v1/realtime?model=\(model)",
             secondsToWait: 60,
-            additionalHeaders: apiInterface.realtimeHeaders
+            additionalHeaders: apiVersion.requestHeaders
         )
 
         guard let url = request.url,
@@ -320,7 +304,7 @@ public enum OpenAIRealtimeAPIInterface: Sendable {
         let session = OpenAIRealtimeSession(
             connection: connection,
             sessionConfiguration: configuration,
-            apiInterface: apiInterface
+            apiVersion: apiVersion
         )
         session.start()
         return session

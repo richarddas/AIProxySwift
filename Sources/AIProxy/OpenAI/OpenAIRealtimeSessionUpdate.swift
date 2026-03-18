@@ -6,8 +6,11 @@ nonisolated public struct OpenAIRealtimeSessionUpdate: Encodable {
     /// Optional client-generated ID used to identify this event.
     public let eventId: String?
 
-    /// Session configuration to update
+    /// Session configuration as provided by the caller.
     public let session: OpenAIRealtimeSessionConfiguration
+
+    /// Session payload to update. The wire shape is selected by API version.
+    private let sessionBody: OpenAIRealtimeSessionUpdateBody
 
     /// The event type, must be "session.update".
     public let type = "session.update"
@@ -18,11 +21,35 @@ nonisolated public struct OpenAIRealtimeSessionUpdate: Encodable {
         case type
     }
 
+    init(
+        eventId: String? = nil,
+        session: OpenAIRealtimeSessionConfiguration,
+        sessionBody: OpenAIRealtimeSessionUpdateBody
+    ) {
+        self.eventId = eventId
+        self.session = session
+        self.sessionBody = sessionBody
+    }
+
+    /// Deprecated initializer preserved for source compatibility.
+    ///
+    /// It encodes using GA wire shape. Prefer `OpenAIRealtimeAPIVersion.makeSessionUpdate`.
+    @available(*, deprecated, message: "Use OpenAIRealtimeAPIVersion.makeSessionUpdate(from:eventID:) for explicit wire version control.")
     public init(
         eventId: String? = nil,
         session: OpenAIRealtimeSessionConfiguration
     ) {
-        self.eventId = eventId
-        self.session = session
+        self.init(
+            eventId: eventId,
+            session: session,
+            sessionBody: .ga(.init(configuration: session))
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(eventId, forKey: .eventId)
+        try container.encode(type, forKey: .type)
+        try container.encode(sessionBody, forKey: .session)
     }
 }

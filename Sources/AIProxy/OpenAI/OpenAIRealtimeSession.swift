@@ -18,17 +18,17 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
     private let connection: NWConnection
     private var continuation: AsyncStream<OpenAIRealtimeMessage>.Continuation?
     private let setupTime = Date()
-    private let apiInterface: OpenAIRealtimeAPIInterface
+    private let apiVersion: OpenAIRealtimeAPIVersion
     let sessionConfiguration: OpenAIRealtimeSessionConfiguration
 
     init(
         connection: NWConnection,
         sessionConfiguration: OpenAIRealtimeSessionConfiguration,
-        apiInterface: OpenAIRealtimeAPIInterface
+        apiVersion: OpenAIRealtimeAPIVersion
     ) {
         self.connection = connection
         self.sessionConfiguration = sessionConfiguration
-        self.apiInterface = apiInterface
+        self.apiVersion = apiVersion
     }
 
     /// Must be called after init to begin the WebSocket connection.
@@ -110,11 +110,7 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
         case .ready:
             logIf(.debug)?.debug("AIProxy: NWConnection WebSocket ready")
             await self.sendMessage(
-                OpenAIRealtimeSessionUpdate(
-                    session: self.sessionConfiguration.sessionUpdateConfiguration(
-                        for: self.apiInterface
-                    )
-                )
+                self.apiVersion.makeSessionUpdate(from: self.sessionConfiguration)
             )
             self.scheduleReceiveIfNeeded()
         case .preparing:
