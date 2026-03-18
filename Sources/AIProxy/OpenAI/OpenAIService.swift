@@ -284,7 +284,6 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         // WebSocket protocol with auth headers
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
-        wsOptions.setSubprotocols(["openai-beta.realtime-v1"])
 
         var headers: [(String, String)] = []
         for (key, value) in request.allHTTPHeaderFields ?? [:] {
