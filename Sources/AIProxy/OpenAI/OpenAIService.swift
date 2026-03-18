@@ -259,7 +259,7 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         model: String,
         configuration: OpenAIRealtimeSessionConfiguration,
         logLevel: AIProxyLogLevel,
-        apiVersion: OpenAIRealtimeAPIVersion = .ga
+        apiVersion: OpenAIRealtimeAPIVersion = .betaV1
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
 
@@ -307,6 +307,37 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         )
         session.start()
         return session
+    }
+
+    /// Starts a GA realtime session using GA-safe configuration fields.
+    ///
+    /// This is the preferred opt-in path for the GA interface.
+    public func realtimeSessionGA(
+        model: String,
+        configuration: OpenAIRealtimeSessionConfigurationGA,
+        logLevel: AIProxyLogLevel
+    ) async throws -> OpenAIRealtimeSession {
+        try await realtimeSession(
+            model: model,
+            configuration: configuration.asLegacyBetaConfiguration,
+            logLevel: logLevel,
+            apiVersion: .ga
+        )
+    }
+
+    /// Starts a beta-v1 realtime session with explicit beta configuration.
+    @available(*, deprecated, message: "beta-v1 is being sunset. Prefer realtimeSessionGA.")
+    public func realtimeSessionBetaV1(
+        model: String,
+        configuration: OpenAIRealtimeSessionConfigurationBetaV1,
+        logLevel: AIProxyLogLevel
+    ) async throws -> OpenAIRealtimeSession {
+        try await realtimeSession(
+            model: model,
+            configuration: configuration.asLegacyBetaConfiguration,
+            logLevel: logLevel,
+            apiVersion: .betaV1
+        )
     }
 
     /// Uploads a file to OpenAI for use in a future tool call
