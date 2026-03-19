@@ -1451,6 +1451,7 @@ final class RealtimeManager {
 - `realtimeSessionGA(...)` is the GA-native path and supports GA-only `session.update` fields.
 - `realtimeSession(...)` now defaults to GA. Use `apiVersion: .betaV1` only as an explicit opt-in fallback.
 - OpenAI has announced Realtime beta (`OpenAI-Beta: realtime=v1`) deprecation and shutdown on 2026-05-07. Prefer GA paths for new integrations.
+- For `response.create`, GA uses `output_modalities` (not `modalities`).
 - GA `output_modalities` behavior is nuanced:
   - `["audio"]` returns audio with transcript.
   - `["text"]` returns text only.
