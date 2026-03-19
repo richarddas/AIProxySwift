@@ -395,9 +395,198 @@ struct OpenAIRealtimeGAMigrationCodableTests {
         #expect(encoded.contains("\"type\":\"input_text\""))
     }
 
+    @Test
+    func testResponseCreateUsesGAOutputModalitiesKey() throws {
+        let event = OpenAIRealtimeResponseCreate(
+            eventID: "evt_123",
+            response: .init(
+                instructions: "Be concise.",
+                outputModalities: [.audio],
+                tools: [.webSearch(.init(searchContextSize: .medium))],
+                toolChoice: .auto
+            )
+        )
+
+        let encoded: Data = try event.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(ResponseCreateMirror.self, from: encoded)
+
+        #expect(decoded.type == "response.create")
+        #expect(decoded.eventID == "evt_123")
+        #expect(decoded.response?.instructions == "Be concise.")
+        #expect(decoded.response?.outputModalities == ["audio"])
+        #expect(decoded.response?.modalities == nil)
+        #expect(decoded.response?.tools?.first?.type == "web_search")
+        #expect(decoded.response?.toolChoiceString == "auto")
+    }
+
+    @Test
+    func testResponseCreateToolChoiceMCPEncodesObjectShape() throws {
+        let event = OpenAIRealtimeResponseCreate(
+            response: .init(
+                outputModalities: [.text],
+                toolChoice: .mcp(serverLabel: "acme_mcp", name: "lookup_ticket")
+            )
+        )
+        let encoded: Data = try event.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(ResponseCreateMirror.self, from: encoded)
+
+        #expect(decoded.response?.outputModalities == ["text"])
+        #expect(decoded.response?.toolChoiceObject?.type == "mcp")
+        #expect(decoded.response?.toolChoiceObject?.serverLabel == "acme_mcp")
+        #expect(decoded.response?.toolChoiceObject?.name == "lookup_ticket")
+    }
+
+    @Test
+    func testConversationItemCreateSupportsFunctionCallAndOutput() throws {
+        let functionCall = OpenAIRealtimeConversationItemCreate(
+            item: .functionCall(
+                callID: "call_1",
+                name: "lookup_weather",
+                arguments: "{\"city\":\"Paris\"}"
+            )
+        )
+        let functionOutput = OpenAIRealtimeConversationItemCreate(
+            item: .functionCallOutput(
+                callID: "call_1",
+                output: "{\"temp_c\":18}"
+            )
+        )
+
+        let callEncoded: Data = try functionCall.serialize(pretty: false)
+        let outputEncoded: Data = try functionOutput.serialize(pretty: false)
+        let callDecoded = try JSONDecoder().decode(ConversationItemCreateMirror.self, from: callEncoded)
+        let outputDecoded = try JSONDecoder().decode(ConversationItemCreateMirror.self, from: outputEncoded)
+
+        #expect(callDecoded.item.type == "function_call")
+        #expect(callDecoded.item.callID == "call_1")
+        #expect(callDecoded.item.name == "lookup_weather")
+        #expect(callDecoded.item.arguments == "{\"city\":\"Paris\"}")
+        #expect(outputDecoded.item.type == "function_call_output")
+        #expect(outputDecoded.item.callID == "call_1")
+        #expect(outputDecoded.item.output == "{\"temp_c\":18}")
+    }
+
+    @Test
+    func testConversationItemCreateSupportsInputAudioContent() throws {
+        let item = OpenAIRealtimeConversationItemCreate.Item(
+            role: "user",
+            content: [.inputAudio("BASE64_PCM16_AUDIO")]
+        )
+        let event = OpenAIRealtimeConversationItemCreate(item: item)
+
+        let encoded: Data = try event.serialize(pretty: false)
+        let decoded = try JSONDecoder().decode(ConversationItemCreateMirror.self, from: encoded)
+
+        #expect(decoded.item.type == "message")
+        #expect(decoded.item.role == "user")
+        #expect(decoded.item.content?.first?.type == "input_audio")
+        #expect(decoded.item.content?.first?.audio == "BASE64_PCM16_AUDIO")
+    }
+
     private struct SessionUpdateMirror: Decodable {
         let type: String
         let session: SessionConfigurationMirror
+    }
+
+    private struct ResponseCreateMirror: Decodable {
+        let eventID: String?
+        let response: ResponseMirror?
+        let type: String
+
+        private enum CodingKeys: String, CodingKey {
+            case eventID = "event_id"
+            case response
+            case type
+        }
+    }
+
+    private struct ResponseMirror: Decodable {
+        let instructions: String?
+        let modalities: [String]?
+        let outputModalities: [String]?
+        let tools: [ToolMirror]?
+        let toolChoiceObject: ResponseToolChoiceObject?
+        let toolChoiceString: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case instructions
+            case modalities
+            case outputModalities = "output_modalities"
+            case toolChoice = "tool_choice"
+            case tools
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.instructions = try container.decodeIfPresent(String.self, forKey: .instructions)
+            self.modalities = try container.decodeIfPresent([String].self, forKey: .modalities)
+            self.outputModalities = try container.decodeIfPresent([String].self, forKey: .outputModalities)
+            self.tools = try container.decodeIfPresent([ToolMirror].self, forKey: .tools)
+            if container.contains(.toolChoice) {
+                let toolChoiceDecoder = try container.superDecoder(forKey: .toolChoice)
+                if let stringChoice = try? String(from: toolChoiceDecoder) {
+                    self.toolChoiceString = stringChoice
+                    self.toolChoiceObject = nil
+                } else {
+                    self.toolChoiceString = nil
+                    self.toolChoiceObject = try ResponseToolChoiceObject(from: toolChoiceDecoder)
+                }
+            } else {
+                self.toolChoiceString = nil
+                self.toolChoiceObject = nil
+            }
+        }
+    }
+
+    private struct ResponseToolChoiceObject: Decodable {
+        let name: String?
+        let serverLabel: String?
+        let type: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case serverLabel = "server_label"
+            case type
+        }
+    }
+
+    private struct ConversationItemCreateMirror: Decodable {
+        let item: ConversationItemMirror
+        let type: String
+    }
+
+    private struct ConversationItemMirror: Decodable {
+        let arguments: String?
+        let callID: String?
+        let content: [ConversationContentMirror]?
+        let name: String?
+        let output: String?
+        let role: String?
+        let type: String
+
+        private enum CodingKeys: String, CodingKey {
+            case arguments
+            case callID = "call_id"
+            case content
+            case name
+            case output
+            case role
+            case type
+        }
+    }
+
+    private struct ConversationContentMirror: Decodable {
+        let audio: String?
+        let itemID: String?
+        let text: String?
+        let type: String
+
+        private enum CodingKeys: String, CodingKey {
+            case audio
+            case itemID = "item_id"
+            case text
+            case type
+        }
     }
 
     private struct SessionConfigurationMirror: Decodable {
