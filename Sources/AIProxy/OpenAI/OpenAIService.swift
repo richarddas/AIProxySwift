@@ -251,7 +251,6 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
     ///            https://developers.openai.com/api/docs/models
     ///   - configuration: The session configuration object, see this reference:
     ///                    https://platform.openai.com/docs/api-reference/realtime-client-events/session/update#realtime-client-events/session/update-session
-    ///   - apiVersion: Defaults to GA. Use `.betaV1` only if you explicitly need the legacy beta wire interface.
     ///   - logLevel: The threshold level that this library begins emitting log messages.
     ///               For example, if you set this to `info`, then you'll see all `info`, `warning`, `error`, and `critical` logs.
     ///
@@ -259,8 +258,7 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
     public func realtimeSession(
         model: String,
         configuration: OpenAIRealtimeSessionConfiguration,
-        logLevel: AIProxyLogLevel,
-        apiVersion: OpenAIRealtimeAPIVersion = .ga
+        logLevel: AIProxyLogLevel
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
 
@@ -269,61 +267,9 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         let request = try await self.requestBuilder.plainGET(
             path: "/v1/realtime?model=\(model)",
             secondsToWait: 60,
-            additionalHeaders: apiVersion.requestHeaders
+            additionalHeaders: [:]
         )
 
-        guard let url = request.url,
-              let host = url.host
-        else {
-            throw AIProxyError.assertion("Could not extract host from realtime URL")
-        }
-
-        // TLS with certificate pinning
-        let tlsOptions = NWProtocolTLS.Options()
-        configureRealtimeTLSPinning(tlsOptions)
-
-        // WebSocket protocol with auth headers
-        let wsOptions = NWProtocolWebSocket.Options()
-        wsOptions.autoReplyPing = true
-
-        var headers: [(String, String)] = []
-        for (key, value) in request.allHTTPHeaderFields ?? [:] {
-            headers.append((key, value))
-        }
-        headers.append(("Host", host))
-        wsOptions.setAdditionalHeaders(headers)
-
-        // NWConnection parameters
-        let params = NWParameters(tls: tlsOptions)
-        params.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
-        params.serviceClass = .interactiveVoice
-
-        let endpoint = NWEndpoint.url(url)
-        let connection = NWConnection(to: endpoint, using: params)
-
-        let session = OpenAIRealtimeSession(
-            connection: connection,
-            sessionConfiguration: configuration,
-            apiVersion: apiVersion
-        )
-        session.start()
-        return session
-    }
-
-    /// Starts a GA realtime session using GA-safe configuration fields.
-    ///
-    /// This is the preferred opt-in path for the GA interface.
-    public func realtimeSessionGA(
-        model: String,
-        configuration: OpenAIRealtimeSessionConfigurationGA,
-        logLevel: AIProxyLogLevel
-    ) async throws -> OpenAIRealtimeSession {
-        AIProxyLogLevel.callerDesiredLogLevel = logLevel
-        let request = try await self.requestBuilder.plainGET(
-            path: "/v1/realtime?model=\(model)",
-            secondsToWait: 60,
-            additionalHeaders: OpenAIRealtimeAPIVersion.ga.requestHeaders
-        )
         guard let url = request.url,
               let host = url.host
         else {
@@ -351,27 +297,10 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         let connection = NWConnection(to: endpoint, using: params)
         let session = OpenAIRealtimeSession(
             connection: connection,
-            sessionConfiguration: configuration.asLegacyBetaConfiguration,
-            apiVersion: .ga,
-            initialSessionUpdate: OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(from: configuration)
+            sessionConfiguration: configuration
         )
         session.start()
         return session
-    }
-
-    /// Starts a beta-v1 realtime session with explicit beta configuration.
-    @available(*, deprecated, message: "beta-v1 is being sunset. Prefer realtimeSessionGA.")
-    public func realtimeSessionBetaV1(
-        model: String,
-        configuration: OpenAIRealtimeSessionConfigurationBetaV1,
-        logLevel: AIProxyLogLevel
-    ) async throws -> OpenAIRealtimeSession {
-        try await realtimeSession(
-            model: model,
-            configuration: configuration.asLegacyBetaConfiguration,
-            logLevel: logLevel,
-            apiVersion: .betaV1
-        )
     }
 
     /// Uploads a file to OpenAI for use in a future tool call
