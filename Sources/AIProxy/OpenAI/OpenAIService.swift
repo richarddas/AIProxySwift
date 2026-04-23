@@ -239,7 +239,6 @@ import Foundation
     ///            https://developers.openai.com/api/docs/models
     ///   - configuration: The session configuration object, see this reference:
     ///                    https://platform.openai.com/docs/api-reference/realtime-client-events/session/update#realtime-client-events/session/update-session
-    ///   - apiVersion: Defaults to GA. Use `.betaV1` only if you explicitly need the legacy beta wire interface.
     ///   - logLevel: The threshold level that this library begins emitting log messages.
     ///               For example, if you set this to `info`, then you'll see all `info`, `warning`, `error`, and `critical` logs.
     ///
@@ -247,56 +246,17 @@ import Foundation
     public func realtimeSession(
         model: String,
         configuration: OpenAIRealtimeSessionConfiguration,
-        logLevel: AIProxyLogLevel,
-        apiVersion: OpenAIRealtimeAPIVersion = .ga
-    ) async throws -> OpenAIRealtimeSession {
-        AIProxyLogLevel.callerDesiredLogLevel = logLevel
-        let request = try await self.requestBuilder.plainGET(
-            path: "/v1/realtime?model=\(model)",
-            secondsToWait: 60,
-            additionalHeaders: apiVersion.requestHeaders
-        )
-        return OpenAIRealtimeSession(
-            webSocketTask: self.serviceNetworker.urlSession.webSocketTask(with: request),
-            sessionConfiguration: configuration,
-            apiVersion: apiVersion
-        )
-    }
-
-    /// Starts a GA realtime session using GA-safe configuration fields.
-    ///
-    /// This is the preferred opt-in path for the GA interface.
-    public func realtimeSessionGA(
-        model: String,
-        configuration: OpenAIRealtimeSessionConfigurationGA,
         logLevel: AIProxyLogLevel
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
         let request = try await self.requestBuilder.plainGET(
             path: "/v1/realtime?model=\(model)",
             secondsToWait: 60,
-            additionalHeaders: OpenAIRealtimeAPIVersion.ga.requestHeaders
+            additionalHeaders: [:]
         )
         return OpenAIRealtimeSession(
             webSocketTask: self.serviceNetworker.urlSession.webSocketTask(with: request),
-            sessionConfiguration: configuration.asLegacyBetaConfiguration,
-            apiVersion: .ga,
-            initialSessionUpdate: OpenAIRealtimeAPIVersion.ga.makeSessionUpdate(from: configuration)
-        )
-    }
-
-    /// Starts a beta-v1 realtime session with explicit beta configuration.
-    @available(*, deprecated, message: "beta-v1 is being sunset. Prefer realtimeSessionGA.")
-    public func realtimeSessionBetaV1(
-        model: String,
-        configuration: OpenAIRealtimeSessionConfigurationBetaV1,
-        logLevel: AIProxyLogLevel
-    ) async throws -> OpenAIRealtimeSession {
-        try await realtimeSession(
-            model: model,
-            configuration: configuration.asLegacyBetaConfiguration,
-            logLevel: logLevel,
-            apiVersion: .betaV1
+            sessionConfiguration: configuration
         )
     }
 
