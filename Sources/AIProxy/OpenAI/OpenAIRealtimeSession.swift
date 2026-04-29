@@ -7,29 +7,34 @@
 
 import AVFoundation
 import Foundation
+import Network
 
-nonisolated private let kWebsocketDisconnectedErrorCode = 57
 nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
 
 @AIProxyActor open class OpenAIRealtimeSession {
     private var isTearingDown = false
-    private let webSocketTask: URLSessionWebSocketTask
+    private var hasFinishedReceiverStream = false
+    private var receiveInFlight = false
+    private let connection: NWConnection
     private var continuation: AsyncStream<OpenAIRealtimeMessage>.Continuation?
     private let setupTime = Date()
     let sessionConfiguration: OpenAIRealtimeSessionConfiguration
 
     init(
-        webSocketTask: URLSessionWebSocketTask,
+        connection: NWConnection,
         sessionConfiguration: OpenAIRealtimeSessionConfiguration
     ) {
-        self.webSocketTask = webSocketTask
+        self.connection = connection
         self.sessionConfiguration = sessionConfiguration
+    }
 
-        Task {
-            await self.sendMessage(OpenAIRealtimeSessionUpdate(session: self.sessionConfiguration))
-        }
-        self.webSocketTask.resume()
-        self.receiveMessage()
+    /// Must be called after init to begin the WebSocket connection.
+    /// Separated from init because Swift 6 makes global-actor inits nonisolated,
+    /// so calling actor-isolated methods from init triggers a runtime executor check.
+    func start() {
+        logIf(.info)?.info("AIProxy realtime session starting NWConnection")
+        self.setupConnectionHandlers()
+        self.connection.start(queue: .global(qos: .userInitiated))
     }
 
     deinit {
@@ -40,6 +45,7 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
     public var receiver: AsyncStream<OpenAIRealtimeMessage> {
         return AsyncStream { continuation in
             self.continuation = continuation
+            self.hasFinishedReceiverStream = false
         }
     }
 
@@ -50,8 +56,29 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
             return
         }
         do {
-            let wsMessage = URLSessionWebSocketTask.Message.string(try encodable.serialize())
-            try await self.webSocketTask.send(wsMessage)
+            let data: Data = try encodable.serialize()
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+            let context = NWConnection.ContentContext(
+                identifier: "websocket",
+                metadata: [metadata]
+            )
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                self.connection.send(
+                    content: data,
+                    contentContext: context,
+                    isComplete: true,
+                    completion: .contentProcessed { error in
+                        if let error {
+                            cont.resume(throwing: error)
+                        } else {
+                            cont.resume()
+                        }
+                    }
+                )
+            }
+            if data.count < 1500 {
+                logIf(.debug)?.debug("AIProxy realtime control send complete (\(data.count) bytes)")
+            }
         } catch {
             logIf(.error)?.error("Could not send message to OpenAI: \(error.localizedDescription)")
         }
@@ -59,68 +86,96 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
 
     /// Close the websocket connection
     public func disconnect() {
+        guard !self.isTearingDown else { return }
         self.isTearingDown = true
-        self.continuation?.finish()
-        self.continuation = nil
-        self.webSocketTask.cancel()
+        logIf(.info)?.info("AIProxy realtime session disconnecting NWConnection")
+        self.finishReceiverStreamIfNeeded()
+        self.receiveInFlight = false
+        self.connection.stateUpdateHandler = nil
+        self.connection.cancel()
     }
 
-    /// Tells the websocket task to receive a new message
-    private func receiveMessage() {
-        self.webSocketTask.receive { result in
-            switch result {
-            case .failure(let error as NSError):
-                Task {
-                    await self.didReceiveWebSocketError(error)
-                }
-            case .success(let message):
-                Task {
-                    await self.didReceiveWebSocketMessage(message)
-                }
-            }
+    // MARK: - Connection Lifecycle
+
+    private func setupConnectionHandlers() {
+        self.connection.stateUpdateHandler = Self.makeStateUpdateHandler(for: self)
+    }
+
+    private func handleConnectionStateChange(_ state: NWConnection.State) async {
+        logIf(.debug)?.debug("AIProxy realtime NWConnection state -> \(String(describing: state))")
+        switch state {
+        case .ready:
+            logIf(.debug)?.debug("AIProxy: NWConnection WebSocket ready")
+            await self.sendMessage(OpenAIRealtimeSessionUpdate(session: self.sessionConfiguration))
+            self.scheduleReceiveIfNeeded()
+        case .preparing:
+            break
+        case .setup:
+            break
+        case .failed(let error):
+            self.didReceiveConnectionError(error)
+        case .waiting(let error):
+            logIf(.debug)?.debug("AIProxy: NWConnection waiting: \(error.localizedDescription)")
+        case .cancelled:
+            logIf(.info)?.info("AIProxy realtime NWConnection cancelled")
+            self.disconnect()
+        default:
+            break
         }
     }
 
-    /// Handles socket errors. We disconnect on all errors.
-    private func didReceiveWebSocketError(_ error: NSError) {
-        guard !isTearingDown else {
+    /// Schedules a single message receive on the NWConnection
+    private func scheduleReceiveIfNeeded() {
+        guard !self.isTearingDown, !self.receiveInFlight else { return }
+        self.receiveInFlight = true
+
+        let receiveHandler = Self.makeReceiveHandler(for: self)
+        self.connection.receiveMessage(completion: receiveHandler)
+    }
+
+    private func handleReceiveResult(
+        content: Data?,
+        contentContext: NWConnection.ContentContext?,
+        isComplete: Bool,
+        error: NWError?
+    ) async {
+        self.receiveInFlight = false
+
+        if let error {
+            logIf(.error)?.error("AIProxy realtime receive callback error: \(error.localizedDescription)")
+            self.didReceiveConnectionError(error)
             return
         }
 
-        switch error.code {
-        case kWebsocketDisconnectedErrorCode:
-            let disconnectedEarly = Date().timeIntervalSince(setupTime) <= kWebsocketDisconnectedEarlyThreshold
-            if disconnectedEarly {
-                logIf(.warning)?.warning("AIProxy: websocket disconnected immediately. Check that you've followed the DeviceCheck integration guide at https://www.aiproxy.com/docs/integration-guide.html")
-            } else {
-                logIf(.debug)?.debug("AIProxy: websocket disconnected normally")
-            }
-        default:
-            logIf(.error)?.error("Received ws error: \(error.localizedDescription)")
+        guard let content, !content.isEmpty else {
+            _ = isComplete
+            _ = contentContext
+            self.scheduleReceiveIfNeeded()
+            return
+        }
+
+        self.didReceiveWebSocketData(content)
+    }
+
+    /// Handles connection-level errors
+    private func didReceiveConnectionError(_ error: NWError) {
+        guard !isTearingDown else { return }
+
+        let disconnectedEarly =
+            Date().timeIntervalSince(setupTime) <= kWebsocketDisconnectedEarlyThreshold
+        if disconnectedEarly {
+            logIf(.warning)?.warning(
+                "AIProxy: websocket disconnected immediately. Check that you've followed the DeviceCheck integration guide at https://www.aiproxy.com/docs/integration-guide.html"
+            )
+        } else {
+            logIf(.error)?.error("AIProxy: NWConnection error: \(error.localizedDescription)")
         }
 
         self.disconnect()
     }
 
-    /// Handles received websocket messages
-    private func didReceiveWebSocketMessage(_ message: URLSessionWebSocketTask.Message) {
-        switch message {
-        case .string(let text):
-            if let data = text.data(using: .utf8) {
-                self.didReceiveWebSocketData(data)
-            }
-        case .data(let data):
-            self.didReceiveWebSocketData(data)
-        @unknown default:
-            logIf(.error)?.error("Received an unknown websocket message format")
-            self.disconnect()
-        }
-    }
-
     private func didReceiveWebSocketData(_ data: Data) {
         guard !self.isTearingDown else {
-            // The caller already initiated disconnect,
-            // don't send any more messages back to the caller
             return
         }
 
@@ -131,13 +186,61 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
                 logIf(.error)?.error("Received realtime error event from OpenAI: \(errorEvent.errorBody ?? "no body")")
                 return
             }
-            if !self.isTearingDown {
-                self.receiveMessage()
-            }
+            self.scheduleReceiveIfNeeded()
         } catch {
             let strMessage = String(data: data, encoding: .utf8) ?? "unknown"
             logIf(.error)?.error("Received websocket data that we don't understand: \(strMessage)")
             self.disconnect()
+        }
+    }
+
+    private func finishReceiverStreamIfNeeded() {
+        guard !self.hasFinishedReceiverStream else { return }
+        self.hasFinishedReceiverStream = true
+        self.continuation?.finish()
+        self.continuation = nil
+    }
+
+    private nonisolated static func makeStateUpdateHandler(
+        for session: OpenAIRealtimeSession
+    ) -> @Sendable (NWConnection.State) -> Void {
+        return { [weak session] state in
+            session?.didReceiveStateUpdateFromNetwork(state)
+        }
+    }
+
+    private nonisolated static func makeReceiveHandler(
+        for session: OpenAIRealtimeSession
+    ) -> @Sendable (Data?, NWConnection.ContentContext?, Bool, NWError?) -> Void {
+        return { [weak session] content, contentContext, isComplete, error in
+            session?.didReceiveMessageFromNetwork(
+                content: content,
+                contentContext: contentContext,
+                isComplete: isComplete,
+                error: error
+            )
+        }
+    }
+
+    private nonisolated func didReceiveStateUpdateFromNetwork(_ state: NWConnection.State) {
+        Task { @AIProxyActor [weak self] in
+            await self?.handleConnectionStateChange(state)
+        }
+    }
+
+    private nonisolated func didReceiveMessageFromNetwork(
+        content: Data?,
+        contentContext: NWConnection.ContentContext?,
+        isComplete: Bool,
+        error: NWError?
+    ) {
+        Task { @AIProxyActor [weak self] in
+            await self?.handleReceiveResult(
+                content: content,
+                contentContext: contentContext,
+                isComplete: isComplete,
+                error: error
+            )
         }
     }
 }

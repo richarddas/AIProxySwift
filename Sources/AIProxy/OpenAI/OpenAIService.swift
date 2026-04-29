@@ -6,6 +6,18 @@
 //
 
 import Foundation
+import Network
+
+nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS.Options) {
+    sec_protocol_options_set_verify_block(
+        tlsOptions.securityProtocolOptions,
+        { _, secTrust, completion in
+            let trust = sec_trust_copy_ref(secTrust).takeRetainedValue()
+            completion(aiproxyValidatePinnedCertificate(trust))
+        },
+        .global(qos: .userInitiated)
+    )
+}
 
 @AIProxyActor public class OpenAIService: Sendable {
     private let requestFormat: OpenAIRequestFormat
@@ -249,15 +261,46 @@ import Foundation
         logLevel: AIProxyLogLevel
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
+
+        // Build the URLRequest to extract the fully-formed URL and auth headers,
+        // then use those to configure the NWConnection.
         let request = try await self.requestBuilder.plainGET(
             path: "/v1/realtime?model=\(model)",
             secondsToWait: 60,
             additionalHeaders: [:]
         )
-        return OpenAIRealtimeSession(
-            webSocketTask: self.serviceNetworker.urlSession.webSocketTask(with: request),
+
+        guard let url = request.url,
+              let host = url.host
+        else {
+            throw AIProxyError.assertion("Could not extract host from realtime URL")
+        }
+
+        let tlsOptions = NWProtocolTLS.Options()
+        configureRealtimeTLSPinning(tlsOptions)
+
+        let wsOptions = NWProtocolWebSocket.Options()
+        wsOptions.autoReplyPing = true
+
+        var headers: [(String, String)] = []
+        for (key, value) in request.allHTTPHeaderFields ?? [:] {
+            headers.append((key, value))
+        }
+        headers.append(("Host", host))
+        wsOptions.setAdditionalHeaders(headers)
+
+        let params = NWParameters(tls: tlsOptions)
+        params.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
+        params.serviceClass = .interactiveVoice
+
+        let endpoint = NWEndpoint.url(url)
+        let connection = NWConnection(to: endpoint, using: params)
+        let session = OpenAIRealtimeSession(
+            connection: connection,
             sessionConfiguration: configuration
         )
+        session.start()
+        return session
     }
 
     /// Uploads a file to OpenAI for use in a future tool call

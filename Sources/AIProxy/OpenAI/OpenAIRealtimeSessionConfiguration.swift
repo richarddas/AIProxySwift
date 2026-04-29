@@ -17,7 +17,6 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
     public let model: String?
     public let outputModalities: [OpenAIRealtimeSessionConfiguration.Modality]?
     public let outputAudioFormat: OpenAIRealtimeSessionConfiguration.AudioFormat?
-
     /// The speed of the model's spoken response as a multiple of the original speed.
     /// 1.0 is the default speed. 0.25 is the minimum speed. 1.5 is the maximum speed.
     /// This value can only be changed in between model turns, not while a response is in progress.
@@ -99,7 +98,6 @@ nonisolated public struct OpenAIRealtimeSessionConfiguration: Encodable, Sendabl
         )
     }
 }
-
 
 extension OpenAIRealtimeSessionConfiguration {
     nonisolated public enum IncludeField: String, Encodable, Sendable {
@@ -582,6 +580,7 @@ extension OpenAIRealtimeSessionConfiguration.TurnDetection {
         case semanticVAD(eagerness: OpenAIRealtimeSessionConfiguration.Eagerness)
     }
 }
+
 
 // MARK: -
 extension OpenAIRealtimeSessionConfiguration {
