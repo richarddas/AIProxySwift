@@ -157,6 +157,156 @@ struct OpenAIRealtimeMessageTests {
         #expect(donePayload.text == "AB")
     }
 
+    @Test
+    func testResponseDoneUsageIsDecodable() throws {
+        let event = try decode(
+            #"""
+            {
+              "type": "response.done",
+              "event_id": "event_30",
+              "response": {
+                "id": "resp_30",
+                "conversation_id": "conv_30",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 141,
+                  "input_token_details": {
+                    "text_tokens": 18,
+                    "audio_tokens": 91,
+                    "image_tokens": 12,
+                    "cached_tokens": 20,
+                    "cached_tokens_details": {
+                      "text_tokens": 7,
+                      "audio_tokens": 11,
+                      "image_tokens": 2
+                    }
+                  },
+                  "output_tokens": 84,
+                  "output_token_details": {
+                    "text_tokens": 24,
+                    "audio_tokens": 60
+                  },
+                  "total_tokens": 225
+                }
+              }
+            }
+            """#
+        )
+
+        guard case .responseDone(let payload) = event else {
+            Issue.record("Expected responseDone")
+            return
+        }
+        #expect(payload.responseID == "resp_30")
+        #expect(payload.conversationID == "conv_30")
+        #expect(payload.status == "completed")
+        #expect(payload.usage?.inputTokens == 141)
+        #expect(payload.usage?.inputTokensDetails?.textTokens == 18)
+        #expect(payload.usage?.inputTokensDetails?.audioTokens == 91)
+        #expect(payload.usage?.inputTokensDetails?.imageTokens == 12)
+        #expect(payload.usage?.inputTokensDetails?.cachedTokens == 20)
+        #expect(payload.usage?.inputTokensDetails?.cachedTokensDetails?.textTokens == 7)
+        #expect(payload.usage?.inputTokensDetails?.cachedTokensDetails?.audioTokens == 11)
+        #expect(payload.usage?.inputTokensDetails?.cachedTokensDetails?.imageTokens == 2)
+        #expect(payload.usage?.outputTokens == 84)
+        #expect(payload.usage?.outputTokensDetails?.textTokens == 24)
+        #expect(payload.usage?.outputTokensDetails?.audioTokens == 60)
+        #expect(payload.usage?.totalTokens == 225)
+    }
+
+    @Test
+    func testInputAudioTranscriptionDeltaLogprobsAreDecodable() throws {
+        let event = try decode(
+            #"{"type":"conversation.item.input_audio_transcription.delta","event_id":"event_31","item_id":"item_31","content_index":0,"delta":"Hel","logprobs":[{"token":"Hel","bytes":[72,101,108],"logprob":-0.21}]}"#
+        )
+
+        guard case .inputAudioTranscriptionDelta(let payload) = event else {
+            Issue.record("Expected inputAudioTranscriptionDelta")
+            return
+        }
+        #expect(payload.itemID == "item_31")
+        #expect(payload.contentIndex == 0)
+        #expect(payload.delta == "Hel")
+        #expect(payload.logprobs?.count == 1)
+        #expect(payload.logprobs?.first?.token == "Hel")
+        #expect(payload.logprobs?.first?.bytes == [72, 101, 108])
+    }
+
+    @Test
+    func testInputAudioTranscriptionCompletedTokenUsageIsDecodable() throws {
+        let event = try decode(
+            #"""
+            {
+              "type": "conversation.item.input_audio_transcription.completed",
+              "event_id": "event_32",
+              "item_id": "item_32",
+              "content_index": 0,
+              "transcript": "Hello there",
+              "usage": {
+                "type": "tokens",
+                "input_tokens": 12,
+                "input_token_details": {
+                  "audio_tokens": 10,
+                  "text_tokens": 2
+                },
+                "output_tokens": 4,
+                "total_tokens": 16
+              },
+              "logprobs": [
+                {
+                  "token": "Hello",
+                  "bytes": [72, 101, 108, 108, 111],
+                  "logprob": -0.12
+                }
+              ]
+            }
+            """#
+        )
+
+        guard case .inputAudioTranscriptionCompleted(let payload) = event else {
+            Issue.record("Expected inputAudioTranscriptionCompleted")
+            return
+        }
+        #expect(payload.itemID == "item_32")
+        #expect(payload.contentIndex == 0)
+        #expect(payload.transcript == "Hello there")
+        switch payload.usage?.type {
+        case .tokens?:
+            break
+        default:
+            Issue.record("Expected token-based transcription usage")
+        }
+        #expect(payload.usage?.inputTokens == 12)
+        #expect(payload.usage?.inputTokensDetails?.audioTokens == 10)
+        #expect(payload.usage?.inputTokensDetails?.textTokens == 2)
+        #expect(payload.usage?.outputTokens == 4)
+        #expect(payload.usage?.totalTokens == 16)
+        #expect(payload.logprobs?.first?.token == "Hello")
+        #expect(payload.logprobs?.first?.bytes == [72, 101, 108, 108, 111])
+    }
+
+    @Test
+    func testInputAudioTranscriptionCompletedDurationUsageIsDecodable() throws {
+        let event = try decode(
+            #"{"type":"conversation.item.input_audio_transcription.completed","event_id":"event_33","item":{"id":"item_33"},"content_index":0,"transcript":"A short phrase","usage":{"type":"duration","seconds":3.75}}"#
+        )
+
+        guard case .inputAudioTranscriptionCompleted(let payload) = event else {
+            Issue.record("Expected inputAudioTranscriptionCompleted")
+            return
+        }
+        #expect(payload.itemID == "item_33")
+        #expect(payload.transcript == "A short phrase")
+        switch payload.usage?.type {
+        case .duration?:
+            break
+        default:
+            Issue.record("Expected duration-based transcription usage")
+        }
+        #expect(payload.usage?.seconds == 3.75)
+        #expect(payload.usage?.inputTokens == nil)
+    }
+
     private func decode(_ json: String) throws -> OpenAIRealtimeMessage {
         try JSONDecoder().decode(OpenAIRealtimeMessage.self, from: Data(json.utf8))
     }

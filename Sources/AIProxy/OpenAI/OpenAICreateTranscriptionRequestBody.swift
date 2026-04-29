@@ -9,11 +9,13 @@ import Foundation
 
 /// Request body for the 'Create transcription' endpoint:
 /// https://platform.openai.com/docs/api-reference/audio/createTranscription
+///
+/// This type models the core request fields currently exposed by AIProxySwift for the transcription API.
 nonisolated public struct OpenAICreateTranscriptionRequestBody: MultipartFormEncodable {
     /// The audio file object (not file name) to transcribe, in one of these formats: flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, or webm.
     public let file: Data
 
-    /// ID of the model to use. Only `whisper-1` (which is powered by our open source Whisper V2 model) is currently available.
+    /// ID of the model to use, for example `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize`, or `whisper-1`.
     public let model: String
 
     // MARK: Optional properties
@@ -24,9 +26,13 @@ nonisolated public struct OpenAICreateTranscriptionRequestBody: MultipartFormEnc
     /// An optional text to guide the model's style or continue a previous audio segment. The prompt should match the audio language.
     public let prompt: String?
 
-    /// Set this to `verbose_json` to create a transcription object with metadata.
-    /// The format of the transcript output, in one of these options: `json`, `text`, `srt`, `verbose_json`, or `vtt`.
+    /// The format of the transcript output, in one of these options: `json`, `text`, `srt`, `verbose_json`, `vtt`, or `diarized_json`.
+    /// Some models restrict which response formats are accepted.
     public let responseFormat: String?
+
+    /// Additional information to include in the transcription response.
+    /// `logprobs` is currently returned on `json` responses for supported `gpt-4o-transcribe` models.
+    public let include: [IncludeField]?
 
     /// The sampling temperature, between 0 and 1. Higher values like 0.8 will make the output more random, while lower
     /// values like 0.2 will make it more focused and deterministic. If set to 0, the model will use log probability to automatically
@@ -46,8 +52,19 @@ nonisolated public struct OpenAICreateTranscriptionRequestBody: MultipartFormEnc
             self.language.flatMap { .textField(name: "language", content: $0)},
             self.prompt.flatMap { .textField(name: "prompt", content: $0)},
             self.responseFormat.flatMap { .textField(name: "response_format", content: $0)},
-            self.temperature.flatMap { .textField(name: "temperature", content: String($0))},
+            self.temperature.flatMap { .textField(name: "temperature", content: String($0))}
         ].compactMap { $0 }
+
+        if let include {
+            for includeField in include {
+                fields.append(
+                    .textField(
+                        name: "include[]",
+                        content: includeField.rawValue
+                    )
+                )
+            }
+        }
 
         if let timestampGranularities = self.timestampGranularities {
             for timestampGranularity in timestampGranularities {
@@ -71,6 +88,7 @@ nonisolated public struct OpenAICreateTranscriptionRequestBody: MultipartFormEnc
         language: String? = nil,
         prompt: String? = nil,
         responseFormat: String? = nil,
+        include: [IncludeField]? = nil,
         temperature: Double? = nil,
         timestampGranularities: [TimestampGranularity]? = nil
     ) {
@@ -79,8 +97,16 @@ nonisolated public struct OpenAICreateTranscriptionRequestBody: MultipartFormEnc
         self.language = language
         self.prompt = prompt
         self.responseFormat = responseFormat
+        self.include = include
         self.temperature = temperature
         self.timestampGranularities = timestampGranularities
+    }
+}
+
+// MARK: -
+extension OpenAICreateTranscriptionRequestBody {
+    nonisolated public enum IncludeField: String, Sendable {
+        case logprobs
     }
 }
 
