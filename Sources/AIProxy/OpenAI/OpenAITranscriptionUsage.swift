@@ -2,9 +2,6 @@
 //  OpenAITranscriptionUsage.swift
 //  AIProxy
 //
-//
-//  Created by OpenAI on 4/29/26.
-//
 
 import Foundation
 
@@ -35,6 +32,25 @@ nonisolated public struct OpenAITranscriptionUsage: Decodable, Sendable {
         case totalTokens = "total_tokens"
         case inputTokensDetails = "input_token_details"
         case seconds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.inputTokens = try container.decodeIfPresent(Int.self, forKey: .inputTokens)
+        self.outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens)
+        self.totalTokens = try container.decodeIfPresent(Int.self, forKey: .totalTokens)
+        self.inputTokensDetails = try container.decodeIfPresent(InputTokensDetails.self, forKey: .inputTokensDetails)
+        self.seconds = try container.decodeIfPresent(Double.self, forKey: .seconds)
+
+        if let type = try container.decodeIfPresent(UsageType.self, forKey: .type) {
+            self.type = type
+        } else if inputTokens != nil || outputTokens != nil || totalTokens != nil || inputTokensDetails != nil {
+            self.type = .tokens
+        } else if seconds != nil {
+            self.type = .duration
+        } else {
+            self.type = .futureProof
+        }
     }
 }
 

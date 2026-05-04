@@ -233,6 +233,21 @@ struct OpenAIRealtimeMessageTests {
     }
 
     @Test
+    func testInputAudioTranscriptionDeltaDecodesWithoutDelta() throws {
+        let event = try decode(
+            #"{"type":"conversation.item.input_audio_transcription.delta","event_id":"event_36","item_id":"item_36","content_index":0,"logprobs":[{"token":"x","bytes":[120],"logprob":-0.1}]}"#
+        )
+
+        guard case .inputAudioTranscriptionDelta(let payload) = event else {
+            Issue.record("Expected inputAudioTranscriptionDelta")
+            return
+        }
+        #expect(payload.delta == nil)
+        #expect(payload.itemID == "item_36")
+        #expect(payload.logprobs?.first?.token == "x")
+    }
+
+    @Test
     func testInputAudioTranscriptionCompletedTokenUsageIsDecodable() throws {
         let event = try decode(
             #"""
@@ -305,6 +320,100 @@ struct OpenAIRealtimeMessageTests {
         }
         #expect(payload.usage?.seconds == 3.75)
         #expect(payload.usage?.inputTokens == nil)
+    }
+
+    @Test
+    func testInputAudioTranscriptionFailedIsDecodable() throws {
+        let event = try decode(
+            #"""
+            {
+              "type": "conversation.item.input_audio_transcription.failed",
+              "event_id": "event_34",
+              "item_id": "item_34",
+              "content_index": 0,
+              "error": {
+                "type": "invalid_request_error",
+                "code": "unsupported_audio",
+                "message": "Audio could not be transcribed.",
+                "param": "audio"
+              }
+            }
+            """#
+        )
+
+        guard case .inputAudioTranscriptionFailed(let payload) = event else {
+            Issue.record("Expected inputAudioTranscriptionFailed")
+            return
+        }
+        #expect(payload.eventID == "event_34")
+        #expect(payload.itemID == "item_34")
+        #expect(payload.contentIndex == 0)
+        #expect(payload.error?.type == "invalid_request_error")
+        #expect(payload.error?.code == "unsupported_audio")
+        #expect(payload.error?.message == "Audio could not be transcribed.")
+        #expect(payload.error?.param == "audio")
+    }
+
+    @Test
+    func testInputAudioTranscriptionSegmentIsDecodable() throws {
+        let event = try decode(
+            #"""
+            {
+              "type": "conversation.item.input_audio_transcription.segment",
+              "event_id": "event_35",
+              "id": "seg_35",
+              "item": {
+                "id": "item_35"
+              },
+              "content_index": 0,
+              "start": 1.2,
+              "end": 4.8,
+              "text": "Thanks for calling.",
+              "speaker": "agent"
+            }
+            """#
+        )
+
+        guard case .inputAudioTranscriptionSegment(let payload) = event else {
+            Issue.record("Expected inputAudioTranscriptionSegment")
+            return
+        }
+        #expect(payload.eventID == "event_35")
+        #expect(payload.id == "seg_35")
+        #expect(payload.itemID == "item_35")
+        #expect(payload.contentIndex == 0)
+        #expect(payload.start == 1.2)
+        #expect(payload.end == 4.8)
+        #expect(payload.text == "Thanks for calling.")
+        #expect(payload.speaker == "agent")
+    }
+
+    @Test
+    func testInputAudioTranscriptionSegmentDecodesTopLevelItemId() throws {
+        let event = try decode(
+            #"""
+            {
+              "type": "conversation.item.input_audio_transcription.segment",
+              "event_id": "event_37",
+              "id": "seg_37",
+              "item_id": "item_37",
+              "content_index": 0,
+              "start": 0.5,
+              "end": 2.5,
+              "text": "Hello.",
+              "speaker": "A"
+            }
+            """#
+        )
+
+        guard case .inputAudioTranscriptionSegment(let payload) = event else {
+            Issue.record("Expected inputAudioTranscriptionSegment")
+            return
+        }
+        #expect(payload.itemID == "item_37")
+        #expect(payload.id == "seg_37")
+        #expect(payload.text == "Hello.")
+        #expect(payload.speaker == "A")
     }
 
     private func decode(_ json: String) throws -> OpenAIRealtimeMessage {

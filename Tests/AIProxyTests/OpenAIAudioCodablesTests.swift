@@ -63,6 +63,75 @@ final class OpenAIAudioCodablesTests: XCTestCase {
         XCTAssertEqual(expected, String(data: result, encoding: .utf8)!)
     }
 
+    func testAudioTranscriptBodyEncodesStreamingAndDiarizationFields() {
+        let body = OpenAICreateTranscriptionRequestBody(
+            file: "AUDIO".data(using: .utf8)!,
+            model: "gpt-4o-transcribe-diarize",
+            responseFormat: "diarized_json",
+            stream: true,
+            chunkingStrategy: .auto,
+            knownSpeakerNames: ["agent"],
+            knownSpeakerReferences: ["data:audio/wav;base64,AAA..."]
+        )
+
+        let boundary = UUID().uuidString
+        let result = formEncode(body, boundary)
+
+        let expected = """
+        --\(boundary)\r
+        Content-Disposition: form-data; name="file"; filename="aiproxy.m4a"\r
+        Content-Type: audio/mpeg\r
+        \r
+        AUDIO\r
+        --\(boundary)\r
+        Content-Disposition: form-data; name="model"\r
+        \r
+        gpt-4o-transcribe-diarize\r
+        --\(boundary)\r
+        Content-Disposition: form-data; name="response_format"\r
+        \r
+        diarized_json\r
+        --\(boundary)\r
+        Content-Disposition: form-data; name="stream"\r
+        \r
+        true\r
+        --\(boundary)\r
+        Content-Disposition: form-data; name="chunking_strategy"\r
+        \r
+        auto\r
+        --\(boundary)\r
+        Content-Disposition: form-data; name="known_speaker_names[]"\r
+        \r
+        agent\r
+        --\(boundary)\r
+        Content-Disposition: form-data; name="known_speaker_references[]"\r
+        \r
+        data:audio/wav;base64,AAA...\r
+        --\(boundary)--
+        """
+        XCTAssertEqual(expected, String(data: result, encoding: .utf8)!)
+    }
+
+    func testAudioTranscriptBodyEncodesServerVADChunkingStrategy() {
+        let body = OpenAICreateTranscriptionRequestBody(
+            file: "AUDIO".data(using: .utf8)!,
+            model: "gpt-4o-transcribe",
+            chunkingStrategy: .serverVAD(
+                .init(
+                    prefixPaddingMs: 250,
+                    silenceDurationMs: 700,
+                    threshold: 0.4
+                )
+            )
+        )
+
+        let boundary = UUID().uuidString
+        let result = String(data: formEncode(body, boundary), encoding: .utf8)!
+
+        XCTAssertTrue(result.contains(#"Content-Disposition: form-data; name="chunking_strategy""#))
+        XCTAssertTrue(result.contains(#"{"type":"server_vad","prefix_padding_ms":250,"silence_duration_ms":700,"threshold":0.4}"#))
+    }
+
     func testAudioTranscriptResponseIsDecodableWithWordTimestampGranularities() {
         let sampleResponse = """
         {
@@ -138,6 +207,51 @@ final class OpenAIAudioCodablesTests: XCTestCase {
         XCTAssertEqual(17, res.usage?.totalTokens)
     }
 
+    func testAudioTranscriptResponseInfersDurationUsageWhenTypeIsOmitted() {
+        let sampleResponse = """
+        {
+          "text": "Hello",
+          "usage": {
+            "seconds": 9.5
+          }
+        }
+        """
+        let decoder = JSONDecoder()
+        let res = try! decoder.decode(
+            OpenAICreateTranscriptionResponseBody.self,
+            from: sampleResponse.data(using: .utf8)!
+        )
+        switch res.usage?.type {
+        case .duration?:
+            break
+        default:
+            XCTFail("Expected inferred duration usage")
+        }
+        XCTAssertEqual(9.5, res.usage?.seconds)
+    }
+
+    func testAudioTranscriptResponseUnknownUsageTypeIsFutureProof() {
+        let sampleResponse = """
+        {
+          "text": "Hello",
+          "usage": {
+            "type": "credits",
+            "credits_used": 3
+          }
+        }
+        """
+        let decoder = JSONDecoder()
+        let res = try! decoder.decode(
+            OpenAICreateTranscriptionResponseBody.self,
+            from: sampleResponse.data(using: .utf8)!
+        )
+        switch res.usage?.type {
+        case .futureProof?:
+            break
+        default:
+            XCTFail("Expected future-proof usage type")
+        }
+    }
 
     func testAudioTranscriptResponseIsDecodableWithSegmentTimestampGranularities() {
         let sampleResponse = """

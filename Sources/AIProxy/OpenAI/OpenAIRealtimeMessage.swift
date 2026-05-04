@@ -38,6 +38,8 @@ nonisolated public enum OpenAIRealtimeMessage: Decodable, Sendable {
     case inputAudioBufferTranscript(OpenAIRealtimeInputAudioBufferTranscriptEvent) // "input_audio_buffer.transcript"
     case inputAudioTranscriptionDelta(OpenAIRealtimeInputAudioTranscriptionDeltaEvent) // "conversation.item.input_audio_transcription.delta"
     case inputAudioTranscriptionCompleted(OpenAIRealtimeInputAudioTranscriptionCompletedEvent) // "conversation.item.input_audio_transcription.completed"
+    case inputAudioTranscriptionFailed(OpenAIRealtimeInputAudioTranscriptionFailedEvent) // "conversation.item.input_audio_transcription.failed"
+    case inputAudioTranscriptionSegment(OpenAIRealtimeInputAudioTranscriptionSegmentEvent) // "conversation.item.input_audio_transcription.segment"
 
     case futureProof
 
@@ -106,6 +108,10 @@ nonisolated public enum OpenAIRealtimeMessage: Decodable, Sendable {
             self = .inputAudioTranscriptionDelta(try OpenAIRealtimeInputAudioTranscriptionDeltaEvent(from: decoder))
         case "conversation.item.input_audio_transcription.completed":
             self = .inputAudioTranscriptionCompleted(try OpenAIRealtimeInputAudioTranscriptionCompletedEvent(from: decoder))
+        case "conversation.item.input_audio_transcription.failed":
+            self = .inputAudioTranscriptionFailed(try OpenAIRealtimeInputAudioTranscriptionFailedEvent(from: decoder))
+        case "conversation.item.input_audio_transcription.segment":
+            self = .inputAudioTranscriptionSegment(try OpenAIRealtimeInputAudioTranscriptionSegmentEvent(from: decoder))
         default:
             logIf(.info)?.info("Received unknown OpenAI realtime event of type \(type).")
             self = .futureProof
@@ -680,7 +686,8 @@ public struct OpenAIRealtimeInputAudioBufferTranscriptEvent: Decodable, Sendable
 }
 
 public struct OpenAIRealtimeInputAudioTranscriptionDeltaEvent: Decodable, Sendable {
-    public let delta: String
+    /// The text delta. OpenAI documents this as optional; it may be absent in edge cases.
+    public let delta: String?
     public let itemID: String?
     public let contentIndex: Int?
     public let logprobs: [OpenAITranscriptionLogprob]?
@@ -702,7 +709,7 @@ public struct OpenAIRealtimeInputAudioTranscriptionDeltaEvent: Decodable, Sendab
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let item = try container.decodeIfPresent(ItemBody.self, forKey: .item)
-        self.delta = try container.decode(String.self, forKey: .delta)
+        self.delta = try container.decodeIfPresent(String.self, forKey: .delta)
         self.itemID = try container.decodeIfPresent(String.self, forKey: .itemID) ?? item?.id
         self.contentIndex = container.decodeFlexibleIntIfPresent(forKey: .contentIndex)
         self.logprobs = try container.decodeIfPresent([OpenAITranscriptionLogprob].self, forKey: .logprobs)
@@ -740,6 +747,81 @@ public struct OpenAIRealtimeInputAudioTranscriptionCompletedEvent: Decodable, Se
         self.contentIndex = container.decodeFlexibleIntIfPresent(forKey: .contentIndex)
         self.usage = try container.decodeIfPresent(OpenAITranscriptionUsage.self, forKey: .usage)
         self.logprobs = try container.decodeIfPresent([OpenAITranscriptionLogprob].self, forKey: .logprobs)
+        self.eventID = try container.decodeIfPresent(String.self, forKey: .eventID)
+    }
+}
+
+public struct OpenAIRealtimeInputAudioTranscriptionFailedEvent: Decodable, Sendable {
+    public let itemID: String?
+    public let contentIndex: Int?
+    public let error: ErrorBody?
+    public let eventID: String?
+
+    private struct ItemBody: Decodable {
+        let id: String?
+    }
+
+    public struct ErrorBody: Decodable, Sendable {
+        public let code: String?
+        public let message: String?
+        public let param: String?
+        public let type: String?
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case itemID = "item_id"
+        case item
+        case contentIndex = "content_index"
+        case error
+        case eventID = "event_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let item = try container.decodeIfPresent(ItemBody.self, forKey: .item)
+        self.itemID = try container.decodeIfPresent(String.self, forKey: .itemID) ?? item?.id
+        self.contentIndex = container.decodeFlexibleIntIfPresent(forKey: .contentIndex)
+        self.error = try container.decodeIfPresent(ErrorBody.self, forKey: .error)
+        self.eventID = try container.decodeIfPresent(String.self, forKey: .eventID)
+    }
+}
+
+public struct OpenAIRealtimeInputAudioTranscriptionSegmentEvent: Decodable, Sendable {
+    public let id: String
+    public let itemID: String?
+    public let contentIndex: Int?
+    public let start: Double?
+    public let end: Double?
+    public let text: String
+    public let speaker: String?
+    public let eventID: String?
+
+    private struct ItemBody: Decodable {
+        let id: String?
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case itemID = "item_id"
+        case item
+        case contentIndex = "content_index"
+        case start
+        case end
+        case text
+        case speaker
+        case eventID = "event_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let item = try container.decodeIfPresent(ItemBody.self, forKey: .item)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.itemID = try container.decodeIfPresent(String.self, forKey: .itemID) ?? item?.id
+        self.contentIndex = container.decodeFlexibleIntIfPresent(forKey: .contentIndex)
+        self.start = container.decodeFlexibleDoubleIfPresent(forKey: .start)
+        self.end = container.decodeFlexibleDoubleIfPresent(forKey: .end)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.speaker = try container.decodeIfPresent(String.self, forKey: .speaker)
         self.eventID = try container.decodeIfPresent(String.self, forKey: .eventID)
     }
 }
