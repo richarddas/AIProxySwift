@@ -65,6 +65,14 @@ struct BackgroundNetworker {
         _ session: URLSession,
         _ request: URLRequest
     ) async throws -> AsyncStream<Data> {
+        let (stream, _) = try await self.makeRequestAndVendChunksWithResponse(session, request)
+        return stream
+    }
+
+    @AIProxyActor static func makeRequestAndVendChunksWithResponse(
+        _ session: URLSession,
+        _ request: URLRequest
+    ) async throws -> (AsyncStream<Data>, HTTPURLResponse) {
 
         let dataTaskBridge = URLSessionDataTaskBridge()
         let task = session.dataTask(with: request)
@@ -95,7 +103,7 @@ struct BackgroundNetworker {
             })
         }
 
-        let _: Void = try await withCheckedThrowingContinuation { @AIProxyActor continuation in
+        let httpResponse: HTTPURLResponse = try await withCheckedThrowingContinuation { @AIProxyActor continuation in
             task.resume()
             dataTaskBridge.onResponse.append { [weak dataTaskBridge] res in
                 guard let dataTaskBridge = dataTaskBridge else { return }
@@ -105,7 +113,8 @@ struct BackgroundNetworker {
                 }
                 dataTaskBridge.statusCode = httpResponse.statusCode
                 if !dataTaskBridge.isBadStatusCode {
-                    continuation.resume()
+                    dataTaskBridge.responseDelivered = true
+                    continuation.resume(returning: httpResponse)
                 }
             }
 
@@ -118,19 +127,25 @@ struct BackgroundNetworker {
 
             dataTaskBridge.onComplete.append { [weak dataTaskBridge] err in
                 guard let dataTaskBridge = dataTaskBridge else { return }
+                if dataTaskBridge.responseDelivered {
+                    return
+                }
                 if let err = err {
+                    dataTaskBridge.responseDelivered = true
                     continuation.resume(throwing: err)
+                    return
                 }
                 if dataTaskBridge.isBadStatusCode {
                     let err = AIProxyError.unsuccessfulRequest(
                         statusCode: dataTaskBridge.statusCode,
                         responseBody: String(data: dataTaskBridge.accumulatedErrorBody, encoding: .utf8) ?? ""
                     )
+                    dataTaskBridge.responseDelivered = true
                     continuation.resume(throwing: err)
                 }
             }
         }
 
-        return asyncStream
+        return (asyncStream, httpResponse)
     }
 }
