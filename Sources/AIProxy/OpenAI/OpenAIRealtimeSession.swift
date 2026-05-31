@@ -11,6 +11,38 @@ import Network
 
 nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
 
+/// How inbound WebSocket frames should be handled before JSON decoding.
+package enum OpenAIRealtimeWebSocketFrameDisposition: Sendable, Equatable {
+    case decodeTextPayload
+    case ignoreControlFrame
+    case closeConnection
+}
+
+package func openAIRealtimeWebSocketFrameDisposition(
+    content: Data?,
+    contentContext: NWConnection.ContentContext?
+) -> OpenAIRealtimeWebSocketFrameDisposition {
+    guard let metadata = contentContext?
+        .protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
+    else {
+        return .decodeTextPayload
+    }
+
+    switch metadata.opcode {
+    case .ping, .pong:
+        return .ignoreControlFrame
+    case .close:
+        return .closeConnection
+    case .binary:
+        // Realtime events are JSON text frames; binary payloads are not API events.
+        return .ignoreControlFrame
+    case .cont, .text:
+        return .decodeTextPayload
+    @unknown default:
+        return .decodeTextPayload
+    }
+}
+
 @AIProxyActor open class OpenAIRealtimeSession {
     private var isTearingDown = false
     private var hasFinishedReceiverStream = false
@@ -147,14 +179,31 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
             return
         }
 
+        switch openAIRealtimeWebSocketFrameDisposition(
+            content: content,
+            contentContext: contentContext
+        ) {
+        case .ignoreControlFrame:
+            logIf(.debug)?.debug(
+                "AIProxy realtime ignoring non-JSON websocket frame (\(content?.count ?? 0, privacy: .public) bytes)"
+            )
+            self.scheduleReceiveIfNeeded()
+            return
+        case .closeConnection:
+            logIf(.info)?.info("AIProxy realtime received websocket close frame")
+            self.disconnect()
+            return
+        case .decodeTextPayload:
+            break
+        }
+
         guard let content, !content.isEmpty else {
             _ = isComplete
-            _ = contentContext
             self.scheduleReceiveIfNeeded()
             return
         }
 
-        self.didReceiveWebSocketData(content)
+        self.didReceiveWebSocketData(content, contentContext: contentContext)
     }
 
     /// Handles connection-level errors
@@ -174,7 +223,10 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
         self.disconnect()
     }
 
-    private func didReceiveWebSocketData(_ data: Data) {
+    private func didReceiveWebSocketData(
+        _ data: Data,
+        contentContext: NWConnection.ContentContext?
+    ) {
         guard !self.isTearingDown else {
             return
         }
@@ -188,10 +240,24 @@ nonisolated private let kWebsocketDisconnectedEarlyThreshold: TimeInterval = 3
             }
             self.scheduleReceiveIfNeeded()
         } catch {
-            let strMessage = String(data: data, encoding: .utf8) ?? "unknown"
-            logIf(.error)?.error("Received websocket data that we don't understand: \(strMessage)")
+            let opcodeLabel = Self.websocketOpcodeLabel(from: contentContext) ?? "unknown_opcode"
+            let payloadPreview = String(data: data.prefix(256), encoding: .utf8) ?? "non_utf8"
+            logIf(.error)?.error(
+                "AIProxy realtime decode failed opcode=\(opcodeLabel, privacy: .public) bytes=\(data.count, privacy: .public) preview=\(payloadPreview, privacy: .public)"
+            )
             self.disconnect()
         }
+    }
+
+    private static func websocketOpcodeLabel(
+        from contentContext: NWConnection.ContentContext?
+    ) -> String? {
+        guard let metadata = contentContext?
+            .protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
+        else {
+            return nil
+        }
+        return String(describing: metadata.opcode)
     }
 
     private func finishReceiverStreamIfNeeded() {
