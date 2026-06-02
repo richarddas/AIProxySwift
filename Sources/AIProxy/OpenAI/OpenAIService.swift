@@ -287,14 +287,53 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
     ) async throws -> OpenAIRealtimeSession {
         AIProxyLogLevel.callerDesiredLogLevel = logLevel
 
-        // Build the URLRequest to extract the fully-formed URL and auth headers,
-        // then use those to configure the NWConnection.
         let request = try await self.requestBuilder.plainGET(
             path: "/v1/realtime?model=\(model)",
             secondsToWait: 60,
             additionalHeaders: [:]
         )
+        let connection = try self.makeRealtimeNWConnection(for: request)
+        let session = OpenAIRealtimeSession(
+            connection: connection,
+            sessionConfiguration: configuration
+        )
+        session.start()
+        return session
+    }
 
+    /// Starts a realtime session for Realtime Reasoning models such as `gpt-realtime-2`.
+    ///
+    /// This uses the same Realtime WebSocket transport as performance models, but sends
+    /// Reasoning-only session fields such as `reasoning` and `parallel_tool_calls` in
+    /// the initial `session.update`.
+    ///
+    /// - Parameters:
+    ///   - model: The Realtime Reasoning model to use, for example `gpt-realtime-2`.
+    ///   - configuration: The Reasoning session configuration object.
+    ///   - logLevel: The threshold level that this library begins emitting log messages.
+    ///
+    /// - Returns: A realtime session manager that the caller can send and receive messages with.
+    public func realtimeSession(
+        model: String,
+        configuration: OpenAIRealtimeReasoningSessionConfiguration,
+        logLevel: AIProxyLogLevel
+    ) async throws -> OpenAIRealtimeSession {
+        AIProxyLogLevel.callerDesiredLogLevel = logLevel
+        let request = try await self.requestBuilder.plainGET(
+            path: "/v1/realtime?model=\(model)",
+            secondsToWait: 60,
+            additionalHeaders: [:]
+        )
+        let connection = try self.makeRealtimeNWConnection(for: request)
+        let session = OpenAIRealtimeSession(
+            connection: connection,
+            sessionConfiguration: configuration
+        )
+        session.start()
+        return session
+    }
+
+    private func makeRealtimeNWConnection(for request: URLRequest) throws -> NWConnection {
         guard let url = request.url,
               let host = url.host
         else {
@@ -322,13 +361,7 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         params.serviceClass = .interactiveVoice
 
         let endpoint = NWEndpoint.url(url)
-        let connection = NWConnection(to: endpoint, using: params)
-        let session = OpenAIRealtimeSession(
-            connection: connection,
-            sessionConfiguration: configuration
-        )
-        session.start()
-        return session
+        return NWConnection(to: endpoint, using: params)
     }
 
     /// Uploads a file to OpenAI for use in a future tool call

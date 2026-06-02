@@ -51,6 +51,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
     private var continuation: AsyncStream<OpenAIRealtimeMessage>.Continuation?
     private let setupTime = Date()
     let sessionConfiguration: OpenAIRealtimeSessionConfiguration
+    private let initialSessionUpdate: OpenAIRealtimeSessionUpdate
 
     init(
         connection: NWConnection,
@@ -58,6 +59,16 @@ package func openAIRealtimeWebSocketFrameDisposition(
     ) {
         self.connection = connection
         self.sessionConfiguration = sessionConfiguration
+        self.initialSessionUpdate = OpenAIRealtimeSessionUpdate(session: sessionConfiguration)
+    }
+
+    init(
+        connection: NWConnection,
+        sessionConfiguration: OpenAIRealtimeReasoningSessionConfiguration
+    ) {
+        self.connection = connection
+        self.sessionConfiguration = sessionConfiguration.session
+        self.initialSessionUpdate = OpenAIRealtimeSessionUpdate(session: sessionConfiguration)
     }
 
     /// Must be called after init to begin the WebSocket connection.
@@ -138,7 +149,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
         switch state {
         case .ready:
             logIf(.debug)?.debug("AIProxy: NWConnection WebSocket ready")
-            await self.sendMessage(OpenAIRealtimeSessionUpdate(session: self.sessionConfiguration))
+            await self.sendMessage(self.initialSessionUpdate)
             self.scheduleReceiveIfNeeded()
         case .preparing:
             break
