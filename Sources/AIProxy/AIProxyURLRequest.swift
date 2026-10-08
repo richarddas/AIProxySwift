@@ -20,8 +20,10 @@ import Foundation
         verb: AIProxyHTTPVerb,
         secondsToWait: UInt,
         contentType: String? = nil,
-        additionalHeaders: [String: String] = [:]
+        additionalHeaders: [String: String] = [:],
+        deviceCheckTokenGenerator: AIProxyDeviceCheck.TokenGenerator? = nil
     ) async throws -> URLRequest {
+        try Task.checkCancellation()
         let resolvedClientID = await getResolvedClientID(clientID)
         var request = try URLRequest(serviceURL: serviceURL, proxyPath: proxyPath)
         request.networkServiceType = .avStreaming
@@ -38,6 +40,7 @@ import Foundation
         if let resolvedAccount = AnonymousAccountStorage.resolvedAccount {
             request.addValue(resolvedAccount.uuid, forHTTPHeaderField: "aiproxy-anonymous-id")
         }
+        try Task.checkCancellation()
 
     #if targetEnvironment(simulator)
         guard let deviceCheckBypass = ProcessInfo.processInfo.environment["AIPROXY_DEVICE_CHECK_BYPASS"] else {
@@ -45,11 +48,14 @@ import Foundation
         }
         request.addValue(deviceCheckBypass, forHTTPHeaderField: "aiproxy-devicecheck-bypass")
     #else
-        guard let deviceCheckToken = await AIProxyDeviceCheck.getToken(forClient: resolvedClientID) else {
+        guard let deviceCheckToken = try await AIProxyDeviceCheck.getToken(
+            forClient: resolvedClientID, tokenGenerator: deviceCheckTokenGenerator
+        ) else {
             throw AIProxyError.deviceCheckIsUnavailable
         }
         request.addValue(deviceCheckToken, forHTTPHeaderField: "aiproxy-devicecheck")
     #endif
+        try Task.checkCancellation()
 
         if let contentType = contentType {
             request.addValue(contentType, forHTTPHeaderField: "Content-Type")

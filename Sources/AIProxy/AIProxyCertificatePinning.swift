@@ -50,6 +50,18 @@ import Foundation
 /// If you encounter other calls in the wild that do not invoke `urlSession:didReceiveChallenge:` on this class,
 /// please report them to me.
 nonisolated public final class AIProxyCertificatePinningDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
+    private let pinnedPublicKeys: [Data]
+
+    public override init() {
+        self.pinnedPublicKeys = publicKeysAsData
+        super.init()
+    }
+
+    /// Internal fixture seam; public construction always uses the existing production pins.
+    init(pinnedPublicKeys: [Data]) {
+        self.pinnedPublicKeys = pinnedPublicKeys
+        super.init()
+    }
 
     nonisolated(unsafe) private var _progressCallback: (@Sendable (Double) -> Void)?
     public var progressCallback: (@Sendable (Double) -> Void)? {
@@ -175,7 +187,7 @@ nonisolated public final class AIProxyCertificatePinningDelegate: NSObject, URLS
       let serverPublicKey = SecCertificateCopyKey(certificate)!
       let serverPublicKeyData = SecKeyCopyExternalRepresentation(serverPublicKey, nil)!
 
-      for publicKeyData in publicKeysAsData {
+      for publicKeyData in pinnedPublicKeys {
          if serverPublicKeyData as Data == publicKeyData {
             let credential = URLCredential(trust: secTrust)
             return (.useCredential, credential)
