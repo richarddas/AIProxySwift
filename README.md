@@ -1408,7 +1408,7 @@ final class RealtimeManager {
             outputModalities: [.audio],
             outputAudioFormat: .pcm16,
             turnDetection: .semanticVAD(.init(eagerness: .medium)),
-            voice: "shimmer"
+            voice: .builtin("shimmer")
         )
 
         let realtimeSession = try await openAIService.realtimeSession(
@@ -1513,16 +1513,15 @@ let session = try await openAIService.realtimeSession(
 OpenAI's Realtime Reasoning models, such as `gpt-realtime-2`, use the same Realtime WebSocket
 transport and shared session fields as Performance models like `gpt-realtime-1.5`, plus
 Reasoning-only configuration for effort and parallel tool calls.
+Omit `reasoning` to leave the effort unspecified.
 
 ```swift
-let configuration = OpenAIRealtimeReasoningSessionConfiguration(
-    session: OpenAIRealtimeSessionConfiguration(
-        outputModalities: [.audio],
-        tools: [.webSearch(.init(searchContextSize: .medium))],
-        toolChoice: .auto,
-        voice: .builtin("alloy")
-    ),
-    reasoning: .init(effort: .low),
+let configuration = OpenAIRealtimeSessionConfiguration(
+    outputModalities: [.audio],
+    tools: [.webSearch(.init(searchContextSize: .medium))],
+    toolChoice: .auto,
+    voice: .builtin("alloy"),
+    reasoning: .low,
     parallelToolCalls: true
 )
 
@@ -1537,13 +1536,11 @@ You can also override Reasoning settings for a single response:
 
 ```swift
 try await session.sendMessage(
-    OpenAIRealtimeReasoningResponseCreate(
+    OpenAIRealtimeResponseCreate(
         response: .init(
-            base: .init(
-                instructions: "Use the lowest sufficient reasoning effort.",
-                outputModalities: [.audio]
-            ),
-            reasoning: .init(effort: .minimal),
+            instructions: "Use the lowest sufficient reasoning effort.",
+            outputModalities: [.audio],
+            reasoning: .minimal,
             parallelToolCalls: false
         )
     )

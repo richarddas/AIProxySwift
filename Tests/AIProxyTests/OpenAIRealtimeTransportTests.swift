@@ -221,9 +221,11 @@ struct OpenAIRealtimeTransportTests {
         let server = try RealtimeLoopbackServer()
         defer { server.stop() }
         let connection = makeNativeRealtimeConnection(url: try await server.listening.value())
-        let configuration = OpenAIRealtimeReasoningSessionConfiguration(
-            session: .init(inputAudioFormat: .pcm16, instructions: "Use fixture instructions.", outputModalities: [.audio]),
-            reasoning: .init(effort: .high),
+        let configuration = OpenAIRealtimeSessionConfiguration(
+            inputAudioFormat: .pcm16,
+            instructions: "Use fixture instructions.",
+            outputModalities: [.audio],
+            reasoning: .high,
             parallelToolCalls: true
         )
         let session = OpenAIRealtimeSession(connection: connection, sessionConfiguration: configuration)

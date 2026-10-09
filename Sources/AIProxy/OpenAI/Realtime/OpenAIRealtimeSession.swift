@@ -84,18 +84,6 @@ package func openAIRealtimeWebSocketFrameDisposition(
         self.initialSessionUpdate = OpenAIRealtimeSessionUpdate(session: sessionConfiguration)
     }
 
-    init(
-        connection: NWConnection,
-        sessionConfiguration: OpenAIRealtimeReasoningSessionConfiguration
-    ) {
-        self.connection = connection
-        #if DEBUG
-        self.testTransport = nil
-        #endif
-        self.sessionConfiguration = sessionConfiguration.session
-        self.initialSessionUpdate = OpenAIRealtimeSessionUpdate(session: sessionConfiguration)
-    }
-
     #if DEBUG
     init(
         testTransport: OpenAIRealtimeTestTransport,
