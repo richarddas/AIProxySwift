@@ -132,7 +132,9 @@ package func openAIRealtimeWebSocketFrameDisposition(
 
     /// Server events for one receiving task. Provider error events remain message data.
     /// Transport and decoding failures terminate the stream with their cause.
-    /// Cancelling the receiving task closes the session.
+    /// Cancelling while awaiting the next event closes the session.
+    /// Use `defer { session.disconnect() }` in the receiving task so cancellation
+    /// during event handling and early exits also close the session.
     public var receiver: AsyncThrowingStream<OpenAIRealtimeMessage, Error> {
         if let receiverStream { return receiverStream }
         let stream = AsyncThrowingStream<OpenAIRealtimeMessage, Error> { continuation in
