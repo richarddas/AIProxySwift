@@ -67,6 +67,8 @@ package func openAIRealtimeWebSocketFrameDisposition(
     private var hasStarted = false
     private var initialUpdateStarted = false
     private var receiveInFlight = false
+    private let setupTimeoutNanoseconds: UInt64?
+    private var setupTimeoutTask: Task<Void, Never>?
     private var receiverStream: AsyncThrowingStream<OpenAIRealtimeMessage, Error>?
     private var continuation: AsyncThrowingStream<OpenAIRealtimeMessage, Error>.Continuation?
     let sessionConfiguration: OpenAIRealtimeSessionConfiguration
@@ -74,9 +76,15 @@ package func openAIRealtimeWebSocketFrameDisposition(
 
     init(
         connection: NWConnection,
-        sessionConfiguration: OpenAIRealtimeSessionConfiguration
+        sessionConfiguration: OpenAIRealtimeSessionConfiguration,
+        setupTimeout: TimeInterval = 60
     ) {
         self.connection = connection
+        // URLRequest timeouts are finite in production. Cap conversion at the
+        // largest whole-second interval representable by Task.sleep.
+        let timeout = setupTimeout.isFinite ? max(0, setupTimeout) : 60
+        let capped = min(timeout, TimeInterval(UInt64.max / 1_000_000_000))
+        self.setupTimeoutNanoseconds = UInt64(capped * 1_000_000_000)
         #if DEBUG
         self.testTransport = nil
         #endif
@@ -90,6 +98,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
         sessionConfiguration: OpenAIRealtimeSessionConfiguration
     ) {
         self.connection = nil
+        self.setupTimeoutNanoseconds = nil
         self.testTransport = testTransport
         self.sessionConfiguration = sessionConfiguration
         self.initialSessionUpdate = OpenAIRealtimeSessionUpdate(session: sessionConfiguration)
@@ -113,10 +122,12 @@ package func openAIRealtimeWebSocketFrameDisposition(
         #endif
         logIf(.info)?.info("AIProxy realtime session starting NWConnection")
         self.setupConnectionHandlers()
+        self.startSetupDeadline()
         self.connection?.start(queue: .global(qos: .userInitiated))
     }
 
     deinit {
+        setupTimeoutTask?.cancel()
         continuation?.finish()
         if terminalState == nil {
             connection?.stateUpdateHandler = nil
@@ -229,17 +240,58 @@ package func openAIRealtimeWebSocketFrameDisposition(
         self.connection?.stateUpdateHandler = Self.makeStateUpdateHandler(for: self)
     }
 
+    #if DEBUG
+    /// Inject a platform state into the native handler without changing host networking.
+    func handleConnectionStateForTesting(_ state: NWConnection.State) {
+        self.handleConnectionStateChange(state)
+    }
+
+    func expireSetupDeadlineForTesting() {
+        self.setupDeadlineReached()
+    }
+    #endif
+
+    private func startSetupDeadline() {
+        guard let delay = setupTimeoutNanoseconds else { return }
+        self.setupTimeoutTask = Task { @AIProxyActor [weak self] in
+            do { try await Task.sleep(nanoseconds: delay) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.setupDeadlineReached()
+        }
+    }
+
+    private func setupDeadlineReached() {
+        guard setupTimeoutTask != nil, terminalState == nil else { return }
+        self.terminate(.failed(URLError(.timedOut)))
+    }
+
+    private func cancelSetupDeadline() {
+        self.setupTimeoutTask?.cancel()
+        self.setupTimeoutTask = nil
+    }
+
     private func handleConnectionStateChange(_ state: NWConnection.State) {
         guard terminalState == nil else { return }
         logIf(.debug)?.debug("AIProxy realtime NWConnection state -> \(String(describing: state))")
         switch state {
         case .ready:
+            self.cancelSetupDeadline()
             logIf(.debug)?.debug("AIProxy: NWConnection WebSocket ready")
             self.sendInitialSessionUpdate()
-        case .failed(let error), .waiting(let error):
-            // A rejected upgrade and an unavailable endpoint both report .waiting.
-            // Expose that original setup cause and leave a new attempt to the caller.
+        case .failed(let error):
             self.terminate(.failed(error))
+        case .waiting(let error):
+            switch error {
+            case .posix(.ECONNABORTED), .posix(.ECONNREFUSED), .tls:
+                // Preserve the existing fail-fast policy for refused/aborted
+                // attempts and TLS errors, forwarding the original setup cause.
+                self.terminate(.failed(error))
+            default:
+                // Network can resume a waiting connection after a path change.
+                // Preserve that behavior, bounded by the existing setup deadline.
+                logIf(.debug)?.debug("AIProxy realtime waiting for network path: \(error.localizedDescription)")
+            }
         case .cancelled:
             self.terminate(.finished)
         default:
@@ -374,6 +426,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
     private func terminate(_ state: TerminalState) {
         guard terminalState == nil else { return }
         self.terminalState = state
+        self.cancelSetupDeadline()
         if let continuation {
             self.finish(continuation, with: state)
             self.continuation = nil

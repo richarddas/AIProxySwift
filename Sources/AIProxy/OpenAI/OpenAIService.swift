@@ -349,7 +349,8 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         let connection = try self.makeRealtimeNWConnection(for: request)
         let session = OpenAIRealtimeSession(
             connection: connection,
-            sessionConfiguration: configuration
+            sessionConfiguration: configuration,
+            setupTimeout: request.timeoutInterval
         )
         session.start()
         return session

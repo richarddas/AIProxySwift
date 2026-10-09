@@ -55,11 +55,13 @@ nonisolated enum RealtimeTestFailure: Error {
 nonisolated final class RealtimeLoopbackServer: @unchecked Sendable {
     enum Upgrade: Sendable {
         case accept
+        case deferred
         case reject(Int)
     }
 
     let listening = RealtimeTestSignal<URL>()
     let upgraded = RealtimeTestSignal<Void>()
+    let requestReceived = RealtimeTestSignal<Void>()
     let acceptedConnections = RealtimeTestSignal<Void>()
     let peerClosed = RealtimeTestSignal<Void>()
     let stoppedListening = RealtimeTestSignal<Void>()
@@ -73,6 +75,7 @@ nonisolated final class RealtimeLoopbackServer: @unchecked Sendable {
     private var handshake = Data()
     private var clientFrames = Data()
     private var isUpgraded = false
+    private var releaseUpgrade = false
     private var sentClose = false
     private var clientTextCount = 0
     private var stopped = false
@@ -126,6 +129,13 @@ nonisolated final class RealtimeLoopbackServer: @unchecked Sendable {
                     else { continuation.resume() }
                 })
             }
+        }
+    }
+
+    func acceptDeferredUpgrade() {
+        queue.async { [self] in
+            releaseUpgrade = true
+            processHandshake()
         }
     }
 
@@ -208,6 +218,7 @@ nonisolated final class RealtimeLoopbackServer: @unchecked Sendable {
         guard let end = handshake.range(of: Data("\r\n\r\n".utf8)) else { return }
         let request = String(decoding: handshake[..<end.upperBound], as: UTF8.self)
         requestText = request
+        requestReceived.succeed(())
         guard let keyLine = request.components(separatedBy: "\r\n").first(where: {
             $0.lowercased().hasPrefix("sec-websocket-key:")
         }), let key = keyLine.split(separator: ":", maxSplits: 1).last else {
@@ -216,7 +227,9 @@ nonisolated final class RealtimeLoopbackServer: @unchecked Sendable {
         }
         let response: String
         switch upgrade {
-        case .accept:
+        case .deferred where !releaseUpgrade:
+            return
+        case .accept, .deferred:
             let digest = Insecure.SHA1.hash(data: Data((key.trimmingCharacters(in: .whitespaces) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))
             response = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(Data(digest).base64EncodedString())\r\n\r\n"
             isUpgraded = true
