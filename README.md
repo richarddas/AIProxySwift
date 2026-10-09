@@ -1299,6 +1299,21 @@ We recommend getting a basic chat completion with OpenAI working before attempti
 Realtime is a more involved integration (as you can see from the code snippet below), and
 getting a basic integration working first narrows down the source of any problem.
 
+**Breaking change:** Realtime sends throw, and `receiver` is an `AsyncThrowingStream`. Use `try await`
+for sends and `for try await` inside `do`/`catch` for reception. Provider `.error`
+events expose `error.code`, `error.type`, `error.message`, `error.param`, and the
+client event ID in `error.eventID`; the outer `eventID` identifies the server event.
+Read these fields instead of the previous `errorBody` property. A provider error
+does not stop reception on an open connection. Check `responseDone.status` and
+`statusDetails` to distinguish completed, cancelled, incomplete, and failed responses.
+Cancelling the sole receiving task closes the session, as does `disconnect()`.
+The SDK leaves retries and reconnection to the caller.
+
+An abnormal close throws `OpenAIRealtimeSessionError.closed`, retaining the close
+code, raw reason, and any original underlying error. Other transport, serialization,
+and decoding errors are forwarded unchanged. WebSocket handshake failures retain
+the transport's error; their HTTP response body is unavailable through this API.
+
 Take these steps to build and run an OpenAI realtime example: 
 
 1. Generate a new SwiftUI Xcode project
@@ -1405,37 +1420,54 @@ final class RealtimeManager {
         // Send audio from the microphone to OpenAI once OpenAI is ready for it:
         var isOpenAIReadyForAudio = false
         Task {
-            for await buffer in micStream {
-                if isOpenAIReadyForAudio, let base64Audio = AIProxy.base64EncodeAudioPCMBuffer(from: buffer) {
-                    await realtimeSession.sendMessage(
-                        OpenAIRealtimeInputAudioBufferAppend(audio: base64Audio)
-                    )
+            do {
+                for await buffer in micStream {
+                    if isOpenAIReadyForAudio, let base64Audio = AIProxy.base64EncodeAudioPCMBuffer(from: buffer) {
+                        try await realtimeSession.sendMessage(
+                            OpenAIRealtimeInputAudioBufferAppend(audio: base64Audio)
+                        )
+                    }
                 }
+            } catch {
+                print("Realtime send failed: \(error)")
+                realtimeSession.disconnect()
+                audioController.stop()
             }
         }
 
         // Listen for messages from OpenAI:
         Task {
-            for await message in realtimeSession.receiver {
-                switch message {
-                case .error(_):
-                    realtimeSession.disconnect()
-                case .sessionUpdated:
-                    if aiSpeaksFirst {
-                        await realtimeSession.sendMessage(OpenAIRealtimeResponseCreate())
-                    } else {
+            do {
+                for try await message in realtimeSession.receiver {
+                    switch message {
+                    case .error(let event):
+                        print("Realtime command failed: \(event.error?.message ?? "Unknown error")")
+                    case .sessionUpdated:
+                        if aiSpeaksFirst {
+                            try await realtimeSession.sendMessage(OpenAIRealtimeResponseCreate())
+                        } else {
+                            isOpenAIReadyForAudio = true
+                        }
+                    case .responseDone(let response):
+                        if let status = response.status, status != "completed" {
+                            let reason = response.statusDetails?.reason ?? response.statusDetails?.error?.code
+                            print("Realtime response \(status): \(reason ?? "No details supplied")")
+                        }
+                    case .responseAudioDelta(let delta):
+                        audioController.playPCM16Audio(base64String: delta.base64Audio)
+                    case .inputAudioBufferSpeechStarted:
+                        audioController.interruptPlayback()
+                    case .responseCreated:
                         isOpenAIReadyForAudio = true
+                    default:
+                        break
                     }
-                case .responseAudioDelta(let delta):
-                    audioController.playPCM16Audio(base64String: delta.base64String)
-                case .inputAudioBufferSpeechStarted:
-                    audioController.interruptPlayback()
-                case .responseCreated:
-                    isOpenAIReadyForAudio = true
-                default:
-                    break
                 }
+            } catch {
+                print("Realtime session failed: \(error)")
             }
+            realtimeSession.disconnect()
+            audioController.stop()
         }
 
         self.realtimeSession = realtimeSession
@@ -1464,9 +1496,9 @@ final class RealtimeManager {
 ```swift
 let configuration = OpenAIRealtimeSessionConfiguration(
     outputModalities: [.audio],
-    voice: .builtin("alloy"),
     tools: [.webSearch(.init(searchContextSize: .medium))],
-    toolChoice: .auto
+    toolChoice: .auto,
+    voice: .builtin("alloy")
 )
 
 let session = try await openAIService.realtimeSession(
@@ -1486,9 +1518,9 @@ Reasoning-only configuration for effort and parallel tool calls.
 let configuration = OpenAIRealtimeReasoningSessionConfiguration(
     session: OpenAIRealtimeSessionConfiguration(
         outputModalities: [.audio],
-        voice: .builtin("alloy"),
         tools: [.webSearch(.init(searchContextSize: .medium))],
-        toolChoice: .auto
+        toolChoice: .auto,
+        voice: .builtin("alloy")
     ),
     reasoning: .init(effort: .low),
     parallelToolCalls: true
@@ -1504,7 +1536,7 @@ let session = try await openAIService.realtimeSession(
 You can also override Reasoning settings for a single response:
 
 ```swift
-await session.sendMessage(
+try await session.sendMessage(
     OpenAIRealtimeReasoningResponseCreate(
         response: .init(
             base: .init(
@@ -1522,7 +1554,7 @@ Realtime Reasoning responses can include phased output. Use `phase` to separate 
 from the final answer when the model emits both in a turn:
 
 ```swift
-for await message in session.receiver {
+for try await message in session.receiver {
     if case .responseDone(let event) = message {
         let commentary = event.output?.filter { $0.phase == .commentary }
         let finalAnswer = event.output?.filter { $0.phase == .finalAnswer }
