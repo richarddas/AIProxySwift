@@ -272,6 +272,57 @@ nonisolated private func configureRealtimeTLSPinning(_ tlsOptions: NWProtocolTLS
         return try await self.makeRequestAndDeserializeResponse(request).body
     }
 
+    /// Creates an unstarted Live primary WebSocket session using this service's authentication and trust policy.
+    /// Obtain its event sequence and call `start()` before sending audio. Direct credentials belong
+    /// in trusted environments. Actual proxy and device support depends on the configured service route.
+    @available(watchOS 10.5, *)
+    public func makeLiveSession(
+        configuration: OpenAILiveSessionConfiguration,
+        options: OpenAILiveSessionOptions = .init(),
+        additionalHeaders: [String: String] = [:],
+        baseURLOverride: String? = nil
+    ) throws -> OpenAILiveSession {
+        try options.validate()
+        guard let requestTimeout = UInt(exactly: ceil(options.startupTimeout)) else {
+            throw OpenAILiveError.invalidOptions
+        }
+        let requestBuilder = self.requestBuilder
+        let urlSession = self.serviceNetworker.urlSession
+        return OpenAILiveSession(
+            configuration: configuration,
+            options: options,
+            dependencies: .init(
+                makeRequest: {
+                    var request = try await requestBuilder.plainGET(
+                        path: "/v1/live/sessions",
+                        secondsToWait: requestTimeout,
+                        additionalHeaders: additionalHeaders,
+                        baseURLOverride: baseURLOverride
+                    )
+                    guard let url = request.url,
+                          var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                        throw URLError(.badURL)
+                    }
+                    switch components.scheme {
+                    case "https": components.scheme = "wss"
+                    case "http": components.scheme = "ws"
+                    case "wss", "ws": break
+                    default: throw URLError(.unsupportedURL)
+                    }
+                    guard let webSocketURL = components.url else { throw URLError(.badURL) }
+                    request.url = webSocketURL
+                    return request
+                },
+                makeTransport: { request, limit in
+                    OpenAILiveURLSessionTransport(session: urlSession, request: request, maximumMessageBytes: limit)
+                },
+                sleep: { seconds in
+                    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                }
+            )
+        )
+    }
+
     /// Starts a realtime session.
     ///
     /// - Parameters:

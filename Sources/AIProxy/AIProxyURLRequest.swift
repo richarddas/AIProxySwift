@@ -20,10 +20,11 @@ import Foundation
         verb: AIProxyHTTPVerb,
         secondsToWait: UInt,
         contentType: String? = nil,
-        additionalHeaders: [String: String] = [:]
+        additionalHeaders: [String: String] = [:],
+        deviceCheckTokenGenerator: AIProxyDeviceCheck.TokenGenerator? = nil
     ) async throws -> URLRequest {
         try await create(
-            builder: AIProxyProxiedRequestBuilder(partialKey: partialKey, serviceURL: serviceURL, clientID: clientID),
+            builder: AIProxyProxiedRequestBuilder(partialKey: partialKey, serviceURL: serviceURL, clientID: clientID, deviceCheckTokenGenerator: deviceCheckTokenGenerator),
             serviceURL: serviceURL,
             proxyPath: proxyPath,
             body: body,
@@ -44,6 +45,7 @@ import Foundation
         contentType: String? = nil,
         additionalHeaders: [String: String] = [:]
     ) async throws -> URLRequest {
+        try Task.checkCancellation()
         let resolvedClientID = await getResolvedClientID(builder.clientID)
         var request = try URLRequest(serviceURL: serviceURL, proxyPath: proxyPath)
         request.networkServiceType = .avStreaming
@@ -60,6 +62,7 @@ import Foundation
         if let resolvedAccount = AnonymousAccountStorage.resolvedAccount {
             request.addValue(resolvedAccount.uuid, forHTTPHeaderField: "aiproxy-anonymous-id")
         }
+        try Task.checkCancellation()
 
     #if targetEnvironment(simulator)
         guard let deviceCheckBypass = ProcessInfo.processInfo.environment["AIPROXY_DEVICE_CHECK_BYPASS"] else {
@@ -71,16 +74,17 @@ import Foundation
         let token = if let deviceCheckTokenProvider = builder.deviceCheckTokenProvider {
             await deviceCheckTokenProvider(resolvedClientID)
         } else {
-            await AIProxyDeviceCheck.getToken(forClient: resolvedClientID)
+            try await AIProxyDeviceCheck.getToken(forClient: resolvedClientID, tokenGenerator: builder.deviceCheckTokenGenerator)
         }
         #else
-        let token = await AIProxyDeviceCheck.getToken(forClient: resolvedClientID)
+        let token = try await AIProxyDeviceCheck.getToken(forClient: resolvedClientID, tokenGenerator: builder.deviceCheckTokenGenerator)
         #endif
         guard let deviceCheckToken = token else {
             throw AIProxyError.deviceCheckIsUnavailable
         }
         request.addValue(deviceCheckToken, forHTTPHeaderField: "aiproxy-devicecheck")
     #endif
+        try Task.checkCancellation()
 
         if let contentType = contentType {
             request.addValue(contentType, forHTTPHeaderField: "Content-Type")

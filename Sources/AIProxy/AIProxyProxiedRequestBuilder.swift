@@ -13,6 +13,7 @@ nonisolated private let legacyURL = "https://api.aiproxy.pro"
     let partialKey: String
     let serviceURL: String?
     let clientID: String?
+    let deviceCheckTokenGenerator: AIProxyDeviceCheck.TokenGenerator?
     #if DEBUG
     // Per-builder override for deterministic tests; excluded from release builds.
     let deviceCheckTokenProvider: (@AIProxyActor @Sendable (String?) async -> String?)?
@@ -21,11 +22,13 @@ nonisolated private let legacyURL = "https://api.aiproxy.pro"
     nonisolated init(
         partialKey: String,
         serviceURL: String?,
-        clientID: String?
+        clientID: String?,
+        deviceCheckTokenGenerator: AIProxyDeviceCheck.TokenGenerator? = nil
     ) {
         self.partialKey = partialKey
         self.serviceURL = serviceURL
         self.clientID = clientID
+        self.deviceCheckTokenGenerator = deviceCheckTokenGenerator
         #if DEBUG
         self.deviceCheckTokenProvider = nil
         #endif
@@ -41,6 +44,7 @@ nonisolated private let legacyURL = "https://api.aiproxy.pro"
         self.partialKey = partialKey
         self.serviceURL = serviceURL
         self.clientID = clientID
+        self.deviceCheckTokenGenerator = nil
         self.deviceCheckTokenProvider = deviceCheckTokenProvider
     }
     #endif

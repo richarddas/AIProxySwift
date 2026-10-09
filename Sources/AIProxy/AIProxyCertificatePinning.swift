@@ -50,6 +50,18 @@ import Foundation
 /// If you encounter other calls in the wild that do not invoke `urlSession:didReceiveChallenge:` on this class,
 /// please report them to me.
 nonisolated public final class AIProxyCertificatePinningDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
+    private let pinnedPublicKeys: [Data]
+
+    public override init() {
+        self.pinnedPublicKeys = publicKeysAsData
+        super.init()
+    }
+
+    /// Internal fixture seam; public construction always uses the existing production pins.
+    init(pinnedPublicKeys: [Data]) {
+        self.pinnedPublicKeys = pinnedPublicKeys
+        super.init()
+    }
 
     nonisolated(unsafe) private var _progressCallback: (@Sendable (Double) -> Void)?
     public var progressCallback: (@Sendable (Double) -> Void)? {
@@ -167,7 +179,7 @@ nonisolated public final class AIProxyCertificatePinningDelegate: NSObject, URLS
          return (.cancelAuthenticationChallenge, nil)
       }
 
-      if aiproxyValidatePinnedCertificate(secTrust) {
+      if aiproxyValidatePinnedCertificate(secTrust, pinnedPublicKeys: pinnedPublicKeys) {
          let credential = URLCredential(trust: secTrust)
          return (.useCredential, credential)
       }
@@ -190,7 +202,10 @@ nonisolated public final class AIProxyCertificatePinningDelegate: NSObject, URLS
 
 /// Validates that the server's public key matches one of AIProxy's pinned keys.
 /// Used by both the URLSession delegate and NWConnection TLS verify block.
-nonisolated func aiproxyValidatePinnedCertificate(_ secTrust: SecTrust) -> Bool {
+nonisolated func aiproxyValidatePinnedCertificate(
+    _ secTrust: SecTrust,
+    pinnedPublicKeys: [Data] = publicKeysAsData
+) -> Bool {
     guard let certificate = getServerCert(secTrust: secTrust) else {
         logIf(.error)?.error("Could not access the server's TLS cert")
         return false
@@ -203,7 +218,7 @@ nonisolated func aiproxyValidatePinnedCertificate(_ secTrust: SecTrust) -> Bool 
         return false
     }
 
-    for publicKeyData in publicKeysAsData {
+    for publicKeyData in pinnedPublicKeys {
         if serverPublicKeyData == publicKeyData {
             return true
         }
