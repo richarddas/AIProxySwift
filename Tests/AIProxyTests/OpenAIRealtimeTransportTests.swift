@@ -67,6 +67,7 @@ struct OpenAIRealtimeTransportTests {
         #expect(outcome.statusDetails?.reason == fixture.reason)
         #expect(outcome.statusDetails?.error?.code == fixture.errorCode)
         #expect(outcome.statusDetails?.error?.type == fixture.errorType)
+        #expect(outcome.statusDetails?.error?.message == (fixture.status == "failed" ? "The response failed." : nil))
         session.disconnect()
         try await recorder.finished.value()
     }

@@ -41,8 +41,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
     }
 }
 
-#if DEBUG
-/// A test-only transport seam for deterministic session lifecycle failures.
+/// An internal transport seam for deterministic session lifecycle failures.
 @AIProxyActor struct OpenAIRealtimeTestTransport: Sendable {
     let send: @AIProxyActor @Sendable (URLSessionWebSocketTask.Message) async throws -> Void
     let receive: @AIProxyActor @Sendable (@escaping @Sendable (Result<URLSessionWebSocketTask.Message, Error>) -> Void) -> Void
@@ -51,7 +50,6 @@ package func openAIRealtimeWebSocketFrameDisposition(
     let closeCode: @AIProxyActor @Sendable () -> URLSessionWebSocketTask.CloseCode
     let closeReason: @AIProxyActor @Sendable () -> Data?
 }
-#endif
 
 @AIProxyActor open class OpenAIRealtimeSession {
     private enum TerminalState: Sendable {
@@ -60,17 +58,15 @@ package func openAIRealtimeWebSocketFrameDisposition(
     }
 
     private let connection: NWConnection?
-    #if DEBUG
     private let testTransport: OpenAIRealtimeTestTransport?
-    #endif
     private var terminalState: TerminalState?
     private var hasStarted = false
     private var initialUpdateStarted = false
     private var receiveInFlight = false
     private let setupTimeoutNanoseconds: UInt64?
     private var setupTimeoutTask: Task<Void, Never>?
-    private var receiverStream: AsyncThrowingStream<OpenAIRealtimeMessage, Error>?
-    private var continuation: AsyncThrowingStream<OpenAIRealtimeMessage, Error>.Continuation?
+    private let receiverStream: AsyncThrowingStream<OpenAIRealtimeMessage, Error>
+    private let continuation: AsyncThrowingStream<OpenAIRealtimeMessage, Error>.Continuation
     let sessionConfiguration: OpenAIRealtimeSessionConfiguration
     private let initialSessionUpdate: OpenAIRealtimeSessionUpdate
 
@@ -79,24 +75,27 @@ package func openAIRealtimeWebSocketFrameDisposition(
         sessionConfiguration: OpenAIRealtimeSessionConfiguration,
         setupTimeout: TimeInterval = 60
     ) {
+        let (receiver, continuation) = AsyncThrowingStream<OpenAIRealtimeMessage, Error>.makeStream()
+        self.receiverStream = receiver
+        self.continuation = continuation
         self.connection = connection
         // URLRequest timeouts are finite in production. Cap conversion at the
         // largest whole-second interval representable by Task.sleep.
         let timeout = setupTimeout.isFinite ? max(0, setupTimeout) : 60
         let capped = min(timeout, TimeInterval(UInt64.max / 1_000_000_000))
         self.setupTimeoutNanoseconds = UInt64(capped * 1_000_000_000)
-        #if DEBUG
         self.testTransport = nil
-        #endif
         self.sessionConfiguration = sessionConfiguration
         self.initialSessionUpdate = OpenAIRealtimeSessionUpdate(session: sessionConfiguration)
     }
 
-    #if DEBUG
     init(
         testTransport: OpenAIRealtimeTestTransport,
         sessionConfiguration: OpenAIRealtimeSessionConfiguration
     ) {
+        let (receiver, continuation) = AsyncThrowingStream<OpenAIRealtimeMessage, Error>.makeStream()
+        self.receiverStream = receiver
+        self.continuation = continuation
         self.connection = nil
         self.setupTimeoutNanoseconds = nil
         self.testTransport = testTransport
@@ -104,7 +103,6 @@ package func openAIRealtimeWebSocketFrameDisposition(
         self.initialSessionUpdate = OpenAIRealtimeSessionUpdate(session: sessionConfiguration)
         self.start()
     }
-    #endif
 
     /// Must be called after init to begin the WebSocket connection.
     /// Separated from init because Swift 6 makes global-actor inits nonisolated,
@@ -112,14 +110,17 @@ package func openAIRealtimeWebSocketFrameDisposition(
     func start() {
         guard terminalState == nil, !hasStarted else { return }
         self.hasStarted = true
-        #if DEBUG
+        self.continuation.onTermination = { [weak self] termination in
+            if case .cancelled = termination {
+                Task { @AIProxyActor [weak self] in self?.disconnect() }
+            }
+        }
         if let testTransport {
             testTransport.resume()
             self.scheduleReceiveIfNeeded()
             self.sendInitialSessionUpdate()
             return
         }
-        #endif
         logIf(.info)?.info("AIProxy realtime session starting NWConnection")
         self.setupConnectionHandlers()
         self.startSetupDeadline()
@@ -128,49 +129,39 @@ package func openAIRealtimeWebSocketFrameDisposition(
 
     deinit {
         setupTimeoutTask?.cancel()
-        continuation?.finish()
+        continuation.finish()
         if terminalState == nil {
             connection?.stateUpdateHandler = nil
             connection?.cancel()
-            #if DEBUG
             if let testTransport {
                 Task { @AIProxyActor in testTransport.cancel() }
             }
-            #endif
         }
         logIf(.debug)?.debug("OpenAIRealtimeSession is being freed")
     }
 
     /// Server events for one receiving task. Provider error events remain message data.
     /// Transport and decoding failures terminate the stream with their cause.
+    /// The stream buffers events without a fixed limit until consumed. Start consuming promptly.
     /// Cancelling while awaiting the next event closes the session.
     /// Use `defer { session.disconnect() }` in the receiving task so cancellation
     /// during event handling and early exits also close the session.
     public var receiver: AsyncThrowingStream<OpenAIRealtimeMessage, Error> {
-        if let receiverStream { return receiverStream }
-        let stream = AsyncThrowingStream<OpenAIRealtimeMessage, Error> { continuation in
-            self.continuation = continuation
-            continuation.onTermination = { [weak self] termination in
-                if case .cancelled = termination {
-                    Task { @AIProxyActor [weak self] in self?.disconnect() }
-                }
-            }
-            // Retain setup failures without buffering events before receiver attachment.
-            if let terminalState = self.terminalState {
-                self.finish(continuation, with: terminalState)
-                self.continuation = nil
-            }
-        }
-        self.receiverStream = stream
-        return stream
+        receiverStream
     }
 
     /// Completes when serialization and the transport send succeed, without implying
     /// provider acknowledgement. Serialization and send failures are thrown unchanged.
     public func sendMessage(_ encodable: Encodable) async throws {
         guard terminalState == nil else { throw OpenAIRealtimeSessionError.disconnected }
-        let message = URLSessionWebSocketTask.Message.string(try encodable.serialize())
-        try await self.sendOperation(message)
+        do {
+            let message = URLSessionWebSocketTask.Message.string(try encodable.serialize())
+            try await self.sendOperation(message)
+        } catch {
+            let code = (error as NSError).code
+            logIf(.error)?.error("Realtime send failed (code: \(code, privacy: .public)): \(error.localizedDescription, privacy: .private)")
+            throw error
+        }
     }
 
     /// Closes the session and finishes its receiver normally. Repeated calls are safe.
@@ -179,9 +170,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
     }
 
     private var sendOperation: @AIProxyActor @Sendable (URLSessionWebSocketTask.Message) async throws -> Void {
-        #if DEBUG
         if let testTransport { return testTransport.send }
-        #endif
         let connection = self.connection
         return { message in
             guard let connection else {
@@ -224,13 +213,12 @@ package func openAIRealtimeWebSocketFrameDisposition(
                 guard self != nil, self?.terminalState == nil else { return }
                 do {
                     try await send(message)
-                    self?.scheduleReceiveIfNeeded()
                 } catch {
-                    self?.terminate(.failed(error))
+                    self?.fail(error, category: "initial send")
                 }
             }
         } catch {
-            self.terminate(.failed(error))
+            self.fail(error, category: "initial send")
         }
     }
 
@@ -263,7 +251,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
 
     private func setupDeadlineReached() {
         guard setupTimeoutTask != nil, terminalState == nil else { return }
-        self.terminate(.failed(URLError(.timedOut)))
+        self.fail(URLError(.timedOut), category: "connection")
     }
 
     private func cancelSetupDeadline() {
@@ -278,15 +266,16 @@ package func openAIRealtimeWebSocketFrameDisposition(
         case .ready:
             self.cancelSetupDeadline()
             logIf(.debug)?.debug("AIProxy: NWConnection WebSocket ready")
+            self.scheduleReceiveIfNeeded()
             self.sendInitialSessionUpdate()
         case .failed(let error):
-            self.terminate(.failed(error))
+            self.fail(error, category: "connection")
         case .waiting(let error):
             switch error {
             case .posix(.ECONNABORTED), .posix(.ECONNREFUSED), .tls:
                 // Preserve the existing fail-fast policy for refused/aborted
                 // attempts and TLS errors, forwarding the original setup cause.
-                self.terminate(.failed(error))
+                self.fail(error, category: "connection")
             default:
                 // Network can resume a waiting connection after a path change.
                 // Preserve that behavior, bounded by the existing setup deadline.
@@ -303,14 +292,12 @@ package func openAIRealtimeWebSocketFrameDisposition(
     private func scheduleReceiveIfNeeded() {
         guard terminalState == nil, !receiveInFlight else { return }
         self.receiveInFlight = true
-        #if DEBUG
         if let testTransport {
             testTransport.receive { [weak self] result in
                 Task { @AIProxyActor [weak self] in self?.handleTestReceiveResult(result) }
             }
             return
         }
-        #endif
         self.connection?.receiveMessage(completion: Self.makeReceiveHandler(for: self))
     }
 
@@ -326,27 +313,27 @@ package func openAIRealtimeWebSocketFrameDisposition(
         case .closeConnection:
             guard let metadata = contentContext?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata else {
                 let cause: Error = error ?? AIProxyError.assertion("A WebSocket close frame has no metadata")
-                self.terminate(.failed(cause))
+                self.fail(cause, category: "receive")
                 return
             }
             guard let code = Self.closeCodeValue(metadata.closeCode) else {
                 let cause: Error = error ?? AIProxyError.assertion("Unsupported WebSocket close metadata")
-                self.terminate(.failed(cause))
+                self.fail(cause, category: "receive")
                 return
             }
             if code == 1000 {
                 self.terminate(.finished)
             } else {
                 // Network supplies the close reason as content, without the status bytes.
-                self.terminate(.failed(OpenAIRealtimeSessionError.closed(
+                self.fail(OpenAIRealtimeSessionError.closed(
                     code: code,
                     reason: content,
                     underlyingError: error
-                )))
+                ), category: "receive", code: code)
             }
             return
         case .ignoreControlFrame:
-            if let error { self.terminate(.failed(error)); return }
+            if let error { self.fail(error, category: "receive"); return }
             logIf(.debug)?.debug(
                 "AIProxy realtime ignoring non-JSON websocket frame (\(content?.count ?? 0, privacy: .public) bytes)"
             )
@@ -355,7 +342,7 @@ package func openAIRealtimeWebSocketFrameDisposition(
         case .decodeTextPayload:
             break
         }
-        if let error { self.terminate(.failed(error)); return }
+        if let error { self.fail(error, category: "receive"); return }
         guard let content, !content.isEmpty else {
             _ = isComplete
             self.scheduleReceiveIfNeeded()
@@ -364,7 +351,6 @@ package func openAIRealtimeWebSocketFrameDisposition(
         self.didReceiveWebSocketData(content, contentContext: contentContext)
     }
 
-    #if DEBUG
     private func handleTestReceiveResult(_ result: Result<URLSessionWebSocketTask.Message, Error>) {
         guard terminalState == nil else { return }
         self.receiveInFlight = false
@@ -372,40 +358,41 @@ package func openAIRealtimeWebSocketFrameDisposition(
         case .failure(let error):
             switch self.testTransport?.closeCode() ?? .invalid {
             case .normalClosure: self.terminate(.finished)
-            case .invalid: self.terminate(.failed(error))
+            case .invalid: self.fail(error, category: "receive")
             case let code:
-                self.terminate(.failed(OpenAIRealtimeSessionError.closed(
+                self.fail(OpenAIRealtimeSessionError.closed(
                     code: code.rawValue,
                     reason: self.testTransport?.closeReason(),
                     underlyingError: error
-                )))
+                ), category: "receive", code: code.rawValue)
             }
         case .success(let message):
             switch message {
             case .string(let text): self.didReceiveWebSocketData(Data(text.utf8), contentContext: nil)
             case .data(let bytes): self.didReceiveWebSocketData(bytes, contentContext: nil)
             @unknown default:
-                self.terminate(.failed(AIProxyError.assertion("Received an unsupported WebSocket message format")))
+                self.fail(AIProxyError.assertion("Received an unsupported WebSocket message format"), category: "receive")
             }
         }
     }
-    #endif
 
     private func didReceiveWebSocketData(_ data: Data, contentContext: NWConnection.ContentContext?) {
         guard terminalState == nil else { return }
         do {
             let message = try JSONDecoder().decode(OpenAIRealtimeMessage.self, from: data)
-            if let continuation, case .terminated = continuation.yield(message) {
+            if case .error(let providerError) = message {
+                let details = providerError.error?.message ?? providerError.error?.code ?? providerError.error?.type ?? "No error details"
+                logIf(.error)?.error("Realtime provider error: \(details, privacy: .private)")
+            }
+            if case .terminated = continuation.yield(message) {
                 self.terminate(.finished)
                 return
             }
             self.scheduleReceiveIfNeeded()
         } catch {
             let opcodeLabel = Self.websocketOpcodeLabel(from: contentContext) ?? "unknown_opcode"
-            let payloadPreview = String(data: data.prefix(256), encoding: .utf8) ?? "non_utf8"
-            logIf(.error)?.error(
-                "AIProxy realtime decode failed opcode=\(opcodeLabel, privacy: .public) bytes=\(data.count, privacy: .public) preview=\(payloadPreview, privacy: .public)"
-            )
+            let errorType = String(reflecting: type(of: error))
+            logIf(.error)?.error("Realtime decode failed (bytes: \(data.count, privacy: .public), type: \(errorType, privacy: .public), opcode: \(opcodeLabel, privacy: .public))")
             self.terminate(.failed(error))
         }
     }
@@ -423,21 +410,23 @@ package func openAIRealtimeWebSocketFrameDisposition(
         return String(describing: metadata.opcode)
     }
 
+    private func fail(_ error: Error, category: String, code: Int? = nil) {
+        guard terminalState == nil else { return }
+        let errorCode = code ?? (error as NSError).code
+        logIf(.error)?.error("Realtime \(category, privacy: .public) failed (code: \(errorCode, privacy: .public)): \(error.localizedDescription, privacy: .private)")
+        self.terminate(.failed(error))
+    }
+
     private func terminate(_ state: TerminalState) {
         guard terminalState == nil else { return }
         self.terminalState = state
         self.cancelSetupDeadline()
-        if let continuation {
-            self.finish(continuation, with: state)
-            self.continuation = nil
-        }
+        self.finish(continuation, with: state)
         self.receiveInFlight = false
-        #if DEBUG
         if let testTransport {
             testTransport.cancel()
             return
         }
-        #endif
         self.connection?.stateUpdateHandler = nil
         self.connection?.cancel()
     }

@@ -95,6 +95,25 @@ struct OpenAIRealtimeDiagnosticsTests {
         #expect(payload.statusDetails?.error?.type == fixture.errorType)
     }
 
+    @Test(arguments: [
+        (#"{"code":"server_error","type":"server_error","message":"The response failed."}"#, "The response failed." as String?),
+        (#"{"code":"server_error","type":"server_error"}"#, nil),
+        (#"{"code":"server_error","type":"server_error","message":null}"#, nil)
+    ])
+    func failedResponsePreservesOptionalErrorMessage(_ error: String, _ expectedMessage: String?) throws {
+        let json = """
+        {"type":"response.done","response":{"id":"response_failed","status":"failed","status_details":{"type":"failed","error":\(error)}}}
+        """
+        guard case .responseDone(let payload) = try decode(json) else {
+            Issue.record("Expected failed response")
+            return
+        }
+        #expect(payload.status == "failed")
+        #expect(payload.statusDetails?.error?.code == "server_error")
+        #expect(payload.statusDetails?.error?.type == "server_error")
+        #expect(payload.statusDetails?.error?.message == expectedMessage)
+    }
+
     @Test(arguments: ["", ",\"status_details\":null"])
     func completedResponseRetainsUsageWithoutInventingDetails(_ details: String) throws {
         let json = """
@@ -154,7 +173,7 @@ nonisolated enum RealtimeTestFixtures {
     static let failedResponse = #"{"type":"response.done","response":{"id":"response_1","status":"failed","status_details":{"type":"failed","error":{"code":"server_error","type":"server_error"}}}}"#
     static let malformedKnownEvent = #"{"type":"response.output_text.delta","delta":123}"#
     static let outcomes: [RealtimeOutcomeFixture] = [
-        .init(json: #"{"type":"response.done","response":{"id":"response_failed","status":"failed","status_details":{"type":"failed","error":{"code":"server_error","type":"server_error"}}}}"#, status: "failed", reason: nil, errorCode: "server_error", errorType: "server_error"),
+        .init(json: #"{"type":"response.done","response":{"id":"response_failed","status":"failed","status_details":{"type":"failed","error":{"code":"server_error","type":"server_error","message":"The response failed."}}}}"#, status: "failed", reason: nil, errorCode: "server_error", errorType: "server_error"),
         .init(json: #"{"type":"response.done","response":{"id":"response_limited","status":"incomplete","status_details":{"type":"incomplete","reason":"max_output_tokens"}}}"#, status: "incomplete", reason: "max_output_tokens", errorCode: nil, errorType: nil),
         .init(json: #"{"type":"response.done","response":{"id":"response_filtered","status":"incomplete","status_details":{"type":"incomplete","reason":"content_filter"}}}"#, status: "incomplete", reason: "content_filter", errorCode: nil, errorType: nil),
         .init(json: #"{"type":"response.done","response":{"id":"response_interrupted","status":"cancelled","status_details":{"type":"cancelled","reason":"turn_detected"}}}"#, status: "cancelled", reason: "turn_detected", errorCode: nil, errorType: nil),

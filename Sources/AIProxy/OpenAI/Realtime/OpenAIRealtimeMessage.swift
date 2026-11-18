@@ -501,6 +501,7 @@ public struct OpenAIRealtimeResponseDoneEvent: Decodable, Sendable {
 
         public struct ErrorBody: Decodable, Sendable {
             public let code: String?
+            public let message: String?
             public let type: String?
         }
     }

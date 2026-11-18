@@ -1319,6 +1319,8 @@ client event ID in `error.eventID`; the outer `eventID` identifies the server ev
 Read these fields instead of the previous `errorBody` property. A provider error
 does not stop reception on an open connection. Check `responseDone.status` and
 `statusDetails` to distinguish completed, cancelled, incomplete, and failed responses.
+The receiver is created before the connection starts; consume it promptly because
+events are buffered without a fixed limit until the receiving task processes them.
 Cancelling while awaiting the next event closes the session. Put
 `defer { session.disconnect() }` in the receiving task to also close it when
 cancellation interrupts event handling or the task returns early.

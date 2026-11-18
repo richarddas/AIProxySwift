@@ -1,10 +1,182 @@
-#if DEBUG
 import Foundation
 import Testing
 @testable import AIProxy
+#if os(macOS)
+import OSLog
+#endif
 
 @AIProxyActor
 struct OpenAIRealtimeSessionFailureTests {
+    #if os(macOS)
+    @Test
+    func providerSendReceiveAndInitialFailuresProducePrivateDiagnostics() async throws {
+        let start = Date().addingTimeInterval(-1)
+        let marker = "private-provider-\(UUID().uuidString)"
+        let fixture = RealtimeScriptedTransport()
+        let session = fixture.makeSession()
+        defer { session.disconnect() }
+        try await fixture.waitForSend(1)
+        fixture.deliver(.success(.string("{\"type\":\"error\",\"error\":{\"message\":\"\(marker)\"}}")))
+        try await fixture.waitForReceive(2)
+        fixture.sendFailures[2] = NSError(domain: "RealtimeTests.LogSend", code: 873451)
+        do {
+            try await session.sendMessage(OpenAIRealtimeResponseCreate())
+            Issue.record("Expected send failure")
+        } catch {}
+        fixture.deliver(.failure(NSError(domain: "RealtimeTests.LogReceive", code: 873452)))
+        try await fixture.cancelled.value()
+        let startup = RealtimeScriptedTransport()
+        startup.sendFailures[1] = NSError(domain: "RealtimeTests.LogInitial", code: 873453)
+        let startupSession = startup.makeSession()
+        defer { startupSession.disconnect() }
+        try await startup.cancelled.value()
+
+        let messages = try await Task.detached { () throws -> [String] in
+            let store = try OSLogStore(scope: .currentProcessIdentifier)
+            let position = store.position(date: start)
+            for _ in 0..<80 {
+                let entries = try store.getEntries(at: position, matching: NSPredicate(format: "category == %@", "AIProxy"))
+                let messages = entries.compactMap { ($0 as? OSLogEntryLog)?.composedMessage }
+                if messages.contains(where: { $0.contains("Realtime provider error:") }),
+                   messages.contains(where: { $0.contains("Realtime send failed (code: 873451)") }),
+                   messages.contains(where: { $0.contains("Realtime receive failed (code: 873452)") }),
+                   messages.contains(where: { $0.contains("Realtime initial send failed (code: 873453)") }) {
+                    return messages
+                }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            throw RealtimeTestFailure.deadlineExceeded
+        }.value
+        #expect(!messages.contains(where: { $0.contains(marker) }))
+    }
+
+    @Test
+    func malformedEventLogsMetadataWithoutPayload() async throws {
+        let start = Date().addingTimeInterval(-1)
+        let fixture = RealtimeScriptedTransport()
+        let session = fixture.makeSession()
+        defer { session.disconnect() }
+        let marker = "private-message-\(UUID().uuidString)"
+        let padding = String(repeating: "x", count: 12_345)
+        let bytes = Data("{\"type\":\"response.output_text.delta\",\"delta\":123,\"private\":\"\(marker)\",\"padding\":\"\(padding)\"}".utf8)
+        fixture.deliver(.success(.data(bytes)))
+        try await fixture.cancelled.value()
+
+        let expected = "Realtime decode failed (bytes: \(bytes.count), type: "
+        let messages = try await Task.detached { () throws -> [String] in
+            let store = try OSLogStore(scope: .currentProcessIdentifier)
+            let position = store.position(date: start)
+            for _ in 0..<80 {
+                let entries = try store.getEntries(at: position, matching: NSPredicate(format: "category == %@", "AIProxy"))
+                let messages = entries.compactMap { ($0 as? OSLogEntryLog)?.composedMessage }
+                if messages.contains(where: { $0.contains(expected) }) {
+                    return messages
+                }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            throw RealtimeTestFailure.deadlineExceeded
+        }.value
+        let logged = try #require(messages.first(where: { $0.contains(expected) }))
+        #expect(logged.contains("DecodingError"))
+        #expect(!messages.contains(where: { $0.contains(marker) || $0.contains(padding) }))
+    }
+    #endif
+
+    @Test
+    func providerErrorsBeforeReceiverAccessAreDeliveredInOrder() async throws {
+        let fixture = RealtimeScriptedTransport()
+        let session = fixture.makeSession()
+        defer { session.disconnect() }
+        for (index, event) in [RealtimeTestFixtures.structuredError, RealtimeTestFixtures.secondError].enumerated() {
+            fixture.deliver(.success(.string(event)))
+            try await fixture.waitForReceive(index + 2)
+        }
+        let recorder = RealtimeMessageRecorder(expectedCount: 3)
+        let reader = recorder.consume(session.receiver)
+        defer { reader.cancel() }
+        fixture.deliver(.success(.string(RealtimeTestFixtures.text)))
+        let messages = try await recorder.delivered.value()
+        #expect(messages.map(RealtimeMessageRecorder.label) == ["error:server_error_1", "error:server_error_2", "text:Ready"])
+    }
+
+    @Test
+    func bufferedErrorDoesNotKeepUnconsumedSessionAlive() async throws {
+        let fixture = RealtimeScriptedTransport()
+        var session: OpenAIRealtimeSession? = fixture.makeSession()
+        weak var weakSession = session
+        fixture.deliver(.success(.string(RealtimeTestFixtures.structuredError)))
+        try await fixture.waitForReceive(2)
+        session = nil
+        try await fixture.cancelled.value()
+        #expect(weakSession == nil)
+        #expect(fixture.cancelCount == 1)
+    }
+
+    @Test
+    func providerErrorBeforeReceiverAccessPrecedesTerminalFailure() async throws {
+        let fixture = RealtimeScriptedTransport()
+        let session = fixture.makeSession()
+        defer { session.disconnect() }
+        fixture.deliver(.success(.string(RealtimeTestFixtures.structuredError)))
+        try await fixture.waitForReceive(2)
+        let expected = originalFailure(useNSError: true, domain: "RealtimeTests.EarlyAfterProviderError", code: 49)
+        fixture.deliver(.failure(expected))
+        try await fixture.cancelled.value()
+        let recorder = RealtimeMessageRecorder(expectedCount: 1)
+        let reader = recorder.consume(session.receiver)
+        defer { reader.cancel() }
+        do {
+            try await recorder.finished.value()
+            Issue.record("Expected the original transport failure")
+        } catch {
+            expectOriginalFailure(error, expected)
+        }
+        #expect(recorder.messages.map(RealtimeMessageRecorder.label) == ["error:server_error_1"])
+        #expect(fixture.cancelCount == 1)
+    }
+
+    @Test
+    func earlyProviderErrorPrecedesPendingInitialSendFailure() async throws {
+        let fixture = RealtimeScriptedTransport()
+        fixture.holdInitialSend = true
+        let session = fixture.makeSession()
+        defer { session.disconnect() }
+        try await fixture.waitForSend(1)
+        fixture.deliver(.success(.string(RealtimeTestFixtures.structuredError)))
+        try await fixture.waitForReceive(2)
+
+        let expected = NSError(domain: "RealtimeTests.PendingInitialSend", code: 51)
+        fixture.failInitialSend(expected)
+        try await fixture.cancelled.value()
+        let recorder = RealtimeMessageRecorder(expectedCount: 1)
+        let reader = recorder.consume(session.receiver)
+        defer { reader.cancel() }
+        do {
+            try await recorder.finished.value()
+            Issue.record("Expected the original initial send failure")
+        } catch {
+            expectOriginalFailure(error, expected)
+        }
+        #expect(recorder.messages.map(RealtimeMessageRecorder.label) == ["error:server_error_1"])
+        #expect(fixture.cancelCount == 1)
+    }
+
+    @Test
+    func earlyProviderErrorRemainsAvailableAfterNormalDisconnect() async throws {
+        let fixture = RealtimeScriptedTransport()
+        let session = fixture.makeSession()
+        fixture.deliver(.success(.string(RealtimeTestFixtures.structuredError)))
+        try await fixture.waitForReceive(2)
+        session.disconnect()
+
+        let recorder = RealtimeMessageRecorder(expectedCount: 1)
+        let reader = recorder.consume(session.receiver)
+        defer { reader.cancel() }
+        try await recorder.finished.value()
+        #expect(recorder.messages.map(RealtimeMessageRecorder.label) == ["error:server_error_1"])
+        #expect(fixture.cancelCount == 1)
+    }
+
     @Test
     func serializationFailureIsOriginalAndDoesNotSend() async throws {
         let fixture = RealtimeScriptedTransport()
@@ -115,7 +287,8 @@ struct OpenAIRealtimeSessionFailureTests {
         let recorder = RealtimeMessageRecorder(expectedCount: 0)
         let reader = recorder.consume(session.receiver)
         defer { reader.cancel() }
-        let bytes = Data(RealtimeTestFixtures.malformedKnownEvent.utf8)
+        let privateMarker = "private-message-marker"
+        let bytes = Data("{\"type\":\"response.output_text.delta\",\"delta\":123,\"private\":\"\(privateMarker)\"}".utf8)
         var expectedError: Error?
         do { _ = try JSONDecoder().decode(OpenAIRealtimeMessage.self, from: bytes) }
         catch { expectedError = error }
@@ -176,7 +349,7 @@ struct OpenAIRealtimeSessionFailureTests {
     }
 
     @Test(arguments: [false, true])
-    func establishedFailureSurvivesRacingDisconnect(_ useNSError: Bool) async throws {
+    func establishedFailureSurvivesLaterDisconnect(_ useNSError: Bool) async throws {
         let fixture = RealtimeScriptedTransport()
         let session = fixture.makeSession()
         let expected = originalFailure(useNSError: useNSError, domain: "RealtimeTests.FirstOutcome", code: 47)
@@ -399,6 +572,10 @@ private final class RealtimeScriptedTransport {
         retiredReceivers.removeAll()
     }
 
+    func failInitialSend(_ error: Error) {
+        initialSendGate.fail(error)
+    }
+
     func waitForReceive(_ count: Int) async throws {
         if receiveCount >= count { return }
         let signal = receiveSignals[count] ?? RealtimeTestSignal<Void>()
@@ -441,4 +618,3 @@ nonisolated private func expectOriginalFailure(_ actual: Error, _ expected: Erro
         #expect(actualNSError.userInfo["fixture_evidence"] as? String == expectedNSError.userInfo["fixture_evidence"] as? String)
     }
 }
-#endif
