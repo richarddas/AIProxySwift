@@ -245,6 +245,14 @@ class OpenAIResponseStreamingEventTests: XCTestCase {
         XCTAssertEqual(compaction.createdBy, "system")
     }
 
+    func testCompletedStreamReportsProcessingTier() throws {
+        let line = #"data: {"type":"response.completed","sequence_number":3,"response":{"output":[],"service_tier":"priority"}}"#
+        guard case .responseCompleted(let completed) = OpenAIResponseStreamingEvent.deserialize(fromLine: line) else {
+            return XCTFail("Expected response.completed")
+        }
+        XCTAssertEqual(completed.response.serviceTier, "priority")
+    }
+
     func testResponseCompletedEventIsDecodable() throws {
         let line = #"data: {"type":"response.completed","sequence_number":74,"response":{"id":"resp_6862e16d59ec819c82a9bb2ef50b05580011e56165dda6f9","object":"response","created_at":1751310701,"status":"completed","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"max_tool_calls":null,"model":"gpt-4o-2024-08-06","output":[{"id":"ws_6862e16e17b8819c9704cda771dc37e10011e56165dda6f9","type":"web_search_call","status":"completed","action":{"type":"search","query":"Apple stock price today"}},{"id":"msg_6862e1709424819cbd4b8c0d552e48970011e56165dda6f9","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"logprobs":[],"text":"As of June 30, 2025, <snip>"}],"role":"assistant"}],"parallel_tool_calls":true,"previous_response_id":null,"reasoning":{"effort":null,"summary":null},"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"}},"tool_choice":"auto","tools":[{"type":"web_search_preview","search_context_size":"low","user_location":{"type":"approximate","city":null,"country":"US","region":null,"timezone":null}}],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":{"input_tokens":308,"input_tokens_details":{"cached_tokens":0},"output_tokens":192,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":500},"user":null,"metadata":{}}}"#
         let event = OpenAIResponseStreamingEvent.deserialize(fromLine: line)
