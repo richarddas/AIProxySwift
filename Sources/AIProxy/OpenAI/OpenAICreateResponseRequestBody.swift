@@ -52,7 +52,6 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
     /// Learn more: https://platform.openai.com/docs/guides/text?api-mode=responses#reusable-prompts
     public let prompt: Prompt?
 
-    /// o-series models only
     /// Configuration options for reasoning models.
     public let reasoning: Reasoning?
 
@@ -60,6 +59,9 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
     /// The IDs should be a string that uniquely identifies each user.
     /// We recommend hashing their username or email address, in order to avoid sending us any identifying information.
     public let safetyIdentifier: String?
+
+    /// The processing tier for this request. If omitted, OpenAI uses the project's configured tier.
+    public let serviceTier: ServiceTier?
 
     /// Whether to store the generated model response for later retrieval via API.
     /// Defaults to true.
@@ -114,6 +116,7 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         case toolChoice = "tool_choice"
         case reasoning
         case safetyIdentifier = "safety_identifier"
+        case serviceTier = "service_tier"
         case store
         case parallelToolCalls = "parallel_tool_calls"
         case previousResponseId = "previous_response_id"
@@ -141,6 +144,7 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         prompt: OpenAICreateResponseRequestBody.Prompt? = nil,
         reasoning: OpenAICreateResponseRequestBody.Reasoning? = nil,
         safetyIdentifier: String? = nil,
+        serviceTier: ServiceTier? = nil,
         store: Bool? = nil,
         stream: Bool? = nil,
         temperature: Double? = nil,
@@ -163,6 +167,7 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         self.prompt = prompt
         self.reasoning = reasoning
         self.safetyIdentifier = safetyIdentifier
+        self.serviceTier = serviceTier
         self.store = store
         self.stream = stream
         self.temperature = temperature
@@ -180,6 +185,19 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
 }
 
 extension OpenAICreateResponseRequestBody {
+
+    /// Processing tiers accepted by the Responses API. Availability depends on the model and account.
+    nonisolated public enum ServiceTier: String, Encodable, Sendable {
+        case auto
+        case `default`
+        case flex
+        case scale
+        /// Enables Fast mode, the same as `.fast`.
+        case priority
+        /// Enables Fast mode. OpenAI reports the tier used as `priority` when served in Fast mode.
+        case fast
+        case ultrafast
+    }
 
     /// One object in the JSON `context_management` array (`type`, `compact_threshold`, …).
     nonisolated public struct ContextManagementItem: Encodable, Sendable {

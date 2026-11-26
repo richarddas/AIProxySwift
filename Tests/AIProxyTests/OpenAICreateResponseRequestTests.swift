@@ -250,6 +250,35 @@ final class OpenAICreateResponseRequestTests: XCTestCase {
         )
     }
 
+    func testResponseRequestWithFastModeAndReasoning() throws {
+        let fastTiers: [(OpenAICreateResponseRequestBody.ServiceTier, String)] = [
+            (.fast, "fast"),
+            (.priority, "priority")
+        ]
+        for (tier, wireValue) in fastTiers {
+            let requestBody = OpenAICreateResponseRequestBody(
+                input: .text("Describe photosynthesis."),
+                model: "gpt-5.6-sol",
+                reasoning: .init(effort: .medium),
+                serviceTier: tier
+            )
+
+            XCTAssertEqual(
+                """
+                {
+                  "input" : "Describe photosynthesis.",
+                  "model" : "gpt-5.6-sol",
+                  "reasoning" : {
+                    "effort" : "medium"
+                  },
+                  "service_tier" : "\(wireValue)"
+                }
+                """,
+                try requestBody.serialize(pretty: true)
+            )
+        }
+    }
+
     func testResponseRequestWithVerbosity() throws {
         let requestBody = OpenAICreateResponseRequestBody(
             input: .text("Write a short story"),
