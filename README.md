@@ -1291,6 +1291,17 @@ This example it taken from OpenAI's [function calling guide](https://platform.op
 ```
 
 
+### How to use OpenAI Live
+
+Use `OpenAIService.makeLiveSession` for the Live primary WebSocket. Configure raw
+audio and client or Responses delegation, consume protocol events, and explicitly
+close or abort the session. Capture, playback and audio-session activation belong
+to your app.
+
+See the [Live example and validation harness](Examples/OpenAILive/README.md) for
+configuration, lifecycle and platform details. Live APIs require watchOS 10.5 or
+later; existing APIs retain their deployment targets.
+
 ### How to use realtime audio with OpenAI
 
 Use this example to have a conversation with OpenAI's realtime models.
@@ -1567,7 +1578,7 @@ let session = try await openAIService.realtimeSession(
 You can also override Reasoning settings for a single response:
 
 ```swift
-await session.sendMessage(
+try await session.sendMessage(
     OpenAIRealtimeResponseCreate(
         response: .init(
             instructions: "Use the lowest sufficient reasoning effort.",
@@ -1583,7 +1594,7 @@ Realtime Reasoning responses can include phased output. Use `phase` to separate 
 from the final answer when the model emits both in a turn:
 
 ```swift
-for await message in session.receiver {
+for try await message in session.receiver {
     if case .responseDone(let event) = message {
         let commentary = event.output?.filter { $0.phase == .commentary }
         let finalAnswer = event.output?.filter { $0.phase == .finalAnswer }

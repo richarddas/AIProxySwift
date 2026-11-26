@@ -10,7 +10,7 @@ struct OpenAIRealtimeTransportTests {
         let server = try RealtimeLoopbackServer(upgrade: .deferred)
         defer { server.stop() }
         let client = makeNativeRealtimeClient(url: try await server.listening.value(),
-                                              configuration: .init(instructions: "fixture instructions"))
+                                              configuration: .init(instructions: "fixture instructions", reasoning: .high, parallelToolCalls: true))
         defer { client.session.disconnect() }
         _ = try await server.requestReceived.value()
         let encoded = RealtimeTestSignal<Void>()
@@ -22,7 +22,10 @@ struct OpenAIRealtimeTransportTests {
         let first = Data(try await server.firstClientText.value().utf8)
         let config = try #require(JSONSerialization.jsonObject(with: first) as? [String: Any])
         #expect(config["type"] as? String == "session.update")
-        #expect((config["session"] as? [String: Any])?["instructions"] as? String == "fixture instructions")
+        let sessionConfig = try #require(config["session"] as? [String: Any])
+        #expect(sessionConfig["instructions"] as? String == "fixture instructions")
+        #expect((sessionConfig["reasoning"] as? [String: Any])?["effort"] as? String == "high")
+        #expect(sessionConfig["parallel_tool_calls"] as? Bool == true)
         let second = Data(try await server.secondClientText.value().utf8)
         let response = try #require(JSONSerialization.jsonObject(with: second) as? [String: Any])
         #expect(response["type"] as? String == "response.create")

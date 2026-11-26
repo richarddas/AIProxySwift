@@ -24,10 +24,16 @@ import AVFoundation
 /// https://stackoverflow.com/questions/57612695/avaudioplayer-volume-low-with-voiceprocessingio
 @AIProxyActor final class AudioPCMPlayer {
 
+    private static let drainGraceNanoseconds: UInt64 = 180_000_000
+
     let audioEngine: AVAudioEngine
     private let inputFormat: AVAudioFormat
     private let playableFormat: AVAudioFormat
     private let playerNode: AVAudioPlayerNode
+    private var pendingBufferCount = 0
+    private var playbackActive = false
+    private var playbackEpoch: UInt64 = 0
+    private var playbackLifecycleHandler: ((AudioPlaybackLifecycleEvent) -> Void)?
 
     init(audioEngine: AVAudioEngine) async throws {
         self.audioEngine = audioEngine
@@ -130,7 +136,17 @@ import AVFoundation
 #endif
 
         if self.audioEngine.isRunning {
-            self.playerNode.scheduleBuffer(outPCMBuf, at: nil, options: [], completionHandler: {})
+            self.playbackEpoch &+= 1
+            self.pendingBufferCount += 1
+            if !self.playbackActive {
+                self.playbackActive = true
+                self.playbackLifecycleHandler?(.started)
+            }
+            self.playerNode.scheduleBuffer(outPCMBuf, at: nil, options: []) {
+                Task {
+                    await self.didFinishScheduledBuffer()
+                }
+            }
             self.playerNode.play()
         }
     }
@@ -138,6 +154,34 @@ import AVFoundation
     public func interruptPlayback() {
         logIf(.debug)?.debug("Interrupting playback")
         self.playerNode.stop()
+        self.playbackEpoch &+= 1
+        let hadQueuedOrActiveAudio = self.playbackActive || self.pendingBufferCount > 0
+        self.pendingBufferCount = 0
+        self.playbackActive = false
+        if hadQueuedOrActiveAudio {
+            self.playbackLifecycleHandler?(.interrupted)
+        }
+    }
+
+    func setPlaybackLifecycleHandler(
+        _ handler: @escaping (AudioPlaybackLifecycleEvent) -> Void
+    ) {
+        self.playbackLifecycleHandler = handler
+    }
+
+    private func didFinishScheduledBuffer() async {
+        self.pendingBufferCount = max(0, self.pendingBufferCount - 1)
+        if self.pendingBufferCount == 0, self.playbackActive {
+            let epochAtDrainCandidate = self.playbackEpoch
+            try? await Task.sleep(nanoseconds: Self.drainGraceNanoseconds)
+            guard self.pendingBufferCount == 0,
+                  self.playbackActive,
+                  self.playbackEpoch == epochAtDrainCandidate else {
+                return
+            }
+            self.playbackActive = false
+            self.playbackLifecycleHandler?(.drained)
+        }
     }
 }
 
