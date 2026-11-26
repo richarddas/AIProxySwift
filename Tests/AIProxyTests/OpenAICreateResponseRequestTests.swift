@@ -250,6 +250,25 @@ final class OpenAICreateResponseRequestTests: XCTestCase {
         )
     }
 
+    func testReasoningEffortValuesInResponsesRequests() throws {
+        typealias Effort = OpenAICreateResponseRequestBody.Reasoning.Effort
+        let values: [(Effort, String)] = [
+            (.noReasoning, "none"), (.minimal, "minimal"), (.low, "low"),
+            (.medium, "medium"), (.high, "high"), (.xhigh, "xhigh"), (.max, "max")
+        ]
+        for (effort, wire) in values {
+            XCTAssertEqual(effort.rawValue, wire)
+            XCTAssertEqual(String(data: try JSONEncoder().encode(effort), encoding: .utf8), "\"\(wire)\"")
+            let request = OpenAICreateResponseRequestBody(input: .text("Hello"), model: "model", reasoning: .init(effort: effort))
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+            let reasoning = try XCTUnwrap(object["reasoning"] as? [String: String])
+            XCTAssertEqual(reasoning["effort"], wire)
+        }
+        let omitted = OpenAICreateResponseRequestBody.Reasoning(effort: .none)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(omitted)) as? [String: Any])
+        XCTAssertNil(object["effort"])
+    }
+
     func testResponseRequestWithVerbosity() throws {
         let requestBody = OpenAICreateResponseRequestBody(
             input: .text("Write a short story"),

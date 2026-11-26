@@ -52,7 +52,6 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
     /// Learn more: https://platform.openai.com/docs/guides/text?api-mode=responses#reusable-prompts
     public let prompt: Prompt?
 
-    /// o-series models only
     /// Configuration options for reasoning models.
     public let reasoning: Reasoning?
 
@@ -638,7 +637,7 @@ extension OpenAICreateResponseRequestBody {
         }
 
         /// Constrains effort on reasoning for reasoning models.
-        /// Currently supported values are low, medium, and high.
+        /// Supported values depend on the model.
         /// Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
         public let effort: Effort?
 
@@ -678,14 +677,7 @@ extension OpenAICreateResponseRequestBody {
 
 // MARK: - Reasoning Types
 extension OpenAICreateResponseRequestBody.Reasoning {
-    /// Constrains effort on reasoning for reasoning models. Currently supported values are `none`, `minimal`, `low`, `medium`, and `high`.
-    /// Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
-    ///
-    /// gpt-5.1 defaults to `none`, which does not perform reasoning.
-    /// The supported reasoning values for gpt-5.1 are `none`, `low`, `medium`, and `high`.
-    /// Tool calls are supported for all reasoning values in gpt-5.1.
-    /// All models before gpt-5.1 default to `medium` reasoning effort, and do not support `none`.
-    /// The gpt-5-pro model defaults to (and only supports) `high` reasoning effort.
+    /// Reasoning effort; supported values and defaults depend on the model.
     nonisolated public enum Effort: String, Encodable, Sendable {
         case noReasoning = "none"
         case minimal
@@ -693,6 +685,7 @@ extension OpenAICreateResponseRequestBody.Reasoning {
         case medium
         case high
         case xhigh
+        case max
     }
 
     /// Summary types for reasoning models
