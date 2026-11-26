@@ -61,6 +61,9 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
     /// We recommend hashing their username or email address, in order to avoid sending us any identifying information.
     public let safetyIdentifier: String?
 
+    /// The processing tier for this request. If omitted, OpenAI defaults to `auto`.
+    public let serviceTier: ServiceTier?
+
     /// Whether to store the generated model response for later retrieval via API.
     /// Defaults to true.
     public let store: Bool?
@@ -114,6 +117,7 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         case toolChoice = "tool_choice"
         case reasoning
         case safetyIdentifier = "safety_identifier"
+        case serviceTier = "service_tier"
         case store
         case parallelToolCalls = "parallel_tool_calls"
         case previousResponseId = "previous_response_id"
@@ -152,6 +156,56 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         user: String? = nil,
         background: Bool? = nil
     ) {
+        self.init(
+            include: include,
+            input: input,
+            instructions: instructions,
+            maxOutputTokens: maxOutputTokens,
+            contextManagement: contextManagement,
+            model: model,
+            parallelToolCalls: parallelToolCalls,
+            previousResponseId: previousResponseId,
+            prompt: prompt,
+            reasoning: reasoning,
+            safetyIdentifier: safetyIdentifier,
+            serviceTier: nil,
+            store: store,
+            stream: stream,
+            temperature: temperature,
+            text: text,
+            toolChoice: toolChoice,
+            tools: tools,
+            topP: topP,
+            truncation: truncation,
+            user: user,
+            background: background
+        )
+    }
+
+    public init(
+        include: [OpenAIInclude]? = nil,
+        input: OpenAIResponse.Input? = nil,
+        instructions: String? = nil,
+        maxOutputTokens: Int? = nil,
+        contextManagement: [OpenAICreateResponseRequestBody.ContextManagementItem]? = nil,
+        model: String? = nil,
+        parallelToolCalls: Bool? = nil,
+        previousResponseId: String? = nil,
+        prompt: OpenAICreateResponseRequestBody.Prompt? = nil,
+        reasoning: OpenAICreateResponseRequestBody.Reasoning? = nil,
+        safetyIdentifier: String? = nil,
+        serviceTier: ServiceTier?,
+        store: Bool? = nil,
+        stream: Bool? = nil,
+        temperature: Double? = nil,
+        text: OpenAIResponse.TextConfiguration? = nil,
+        toolChoice: OpenAICreateResponseRequestBody.ToolChoice? = nil,
+        tools: [OpenAICreateResponseRequestBody.Tool]? = nil,
+        topP: Double? = nil,
+        truncation: OpenAICreateResponseRequestBody.Truncation? = nil,
+        user: String? = nil,
+        background: Bool? = nil
+    ) {
         self.include = include
         self.input = input
         self.instructions = instructions
@@ -163,6 +217,7 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         self.prompt = prompt
         self.reasoning = reasoning
         self.safetyIdentifier = safetyIdentifier
+        self.serviceTier = serviceTier
         self.store = store
         self.stream = stream
         self.temperature = temperature
@@ -180,6 +235,19 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
 }
 
 extension OpenAICreateResponseRequestBody {
+
+    /// Processing tiers accepted by the Responses API. Availability depends on the model and account.
+    nonisolated public enum ServiceTier: String, Encodable, Sendable {
+        case auto
+        case `default`
+        case flex
+        case scale
+        /// Enables Fast mode, the same as `.fast`.
+        case priority
+        /// Enables Fast mode, the same as `.priority`.
+        case fast
+        case ultrafast
+    }
 
     /// One object in the JSON `context_management` array (`type`, `compact_threshold`, …).
     nonisolated public struct ContextManagementItem: Encodable, Sendable {

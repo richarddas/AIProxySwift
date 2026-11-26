@@ -250,6 +250,60 @@ final class OpenAICreateResponseRequestTests: XCTestCase {
         )
     }
 
+    func testOriginalInitializerReferenceRemainsAvailable() throws {
+        let initializer = OpenAICreateResponseRequestBody.init(include:input:instructions:maxOutputTokens:contextManagement:model:parallelToolCalls:previousResponseId:prompt:reasoning:safetyIdentifier:store:stream:temperature:text:toolChoice:tools:topP:truncation:user:background:)
+        let request = initializer(nil, .text("Hello"), nil, nil, nil, "model", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+        let data = try JSONEncoder().encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(object["service_tier"])
+    }
+
+    func testServiceTiersAndOmission() throws {
+        typealias Tier = OpenAICreateResponseRequestBody.ServiceTier
+        let omitted = OpenAICreateResponseRequestBody(input: .text("Hello"), model: "model")
+        let omittedData = try JSONEncoder().encode(omitted)
+        let omittedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: omittedData) as? [String: Any])
+        XCTAssertNil(omittedObject["service_tier"])
+        let tiers: [(Tier, String)] = [(.auto, "auto"), (.default, "default"),
+            (.flex, "flex"), (.scale, "scale"), (.priority, "priority"),
+            (.fast, "fast"), (.ultrafast, "ultrafast")]
+        for (tier, wire) in tiers {
+            let request = OpenAICreateResponseRequestBody(input: .text("Hello"), model: "model", serviceTier: tier)
+            let data = try JSONEncoder().encode(request)
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(object["service_tier"] as? String, wire)
+        }
+    }
+
+    func testResponseRequestWithFastModeAndReasoning() throws {
+        let requests: [(OpenAICreateResponseRequestBody.ServiceTier, String, OpenAICreateResponseRequestBody.Reasoning.Effort, String)] = [
+            (.fast, "fast", .noReasoning, "none"),
+            (.priority, "priority", .medium, "medium")
+        ]
+        for (tier, wireTier, effort, wireEffort) in requests {
+            let requestBody = OpenAICreateResponseRequestBody(
+                input: .text("Describe photosynthesis."),
+                model: "gpt-5.6-sol",
+                reasoning: .init(effort: effort),
+                serviceTier: tier
+            )
+
+            XCTAssertEqual(
+                """
+                {
+                  "input" : "Describe photosynthesis.",
+                  "model" : "gpt-5.6-sol",
+                  "reasoning" : {
+                    "effort" : "\(wireEffort)"
+                  },
+                  "service_tier" : "\(wireTier)"
+                }
+                """,
+                try requestBody.serialize(pretty: true)
+            )
+        }
+    }
+
     func testResponseRequestWithVerbosity() throws {
         let requestBody = OpenAICreateResponseRequestBody(
             input: .text("Write a short story"),
