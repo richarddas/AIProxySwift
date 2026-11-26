@@ -242,9 +242,9 @@ extension OpenAICreateResponseRequestBody {
         case `default`
         case flex
         case scale
-        /// Enables Fast mode, the same as `.fast`.
+        /// An alternative request spelling for Fast mode. Prefer `.fast` for new code.
         case priority
-        /// Enables Fast mode, the same as `.priority`.
+        /// Enables Fast mode.
         case fast
         case ultrafast
     }

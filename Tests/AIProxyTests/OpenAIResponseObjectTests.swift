@@ -10,6 +10,26 @@ import XCTest
 
 final class OpenAIResponseObjectTests: XCTestCase {
 
+    func testServiceTierDecodingPreservesActualAndUnknownValues() throws {
+        for tier in ["priority", "fast", "default", "ultrafast", "future_tier"] {
+            let json = "{\"output\":[],\"service_tier\":\"\(tier)\"}"
+            let response = try JSONDecoder().decode(OpenAIResponse.self, from: Data(json.utf8))
+            XCTAssertEqual(response.serviceTier, tier)
+        }
+        for json in [#"{"output":[]}"#, #"{"output":[],"service_tier":null}"#, #"{"output":[],"service_tier":42}"#] {
+            let response = try JSONDecoder().decode(OpenAIResponse.self, from: Data(json.utf8))
+            XCTAssertNil(response.serviceTier)
+        }
+    }
+
+    func testResponseInitializersRemainAvailable() {
+        let original = OpenAIResponse.init(createdAt:error:id:incompleteDetails:instructions:maxOutputTokens:metadata:model:output:parallelToolCalls:previousResponseId:reasoning:status:text:temperature:toolChoice:tools:topP:truncation:usage:user:)
+        let response = original(nil, nil, nil, nil, nil, nil, nil, nil, [], nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+        XCTAssertNil(response.serviceTier)
+        let withTier = OpenAIResponse(createdAt: nil, error: nil, id: nil, incompleteDetails: nil, instructions: nil, maxOutputTokens: nil, metadata: nil, model: nil, output: [], parallelToolCalls: nil, previousResponseId: nil, reasoning: nil, status: nil, text: nil, temperature: nil, toolChoice: nil, tools: nil, topP: nil, truncation: nil, usage: nil, user: nil, serviceTier: "priority")
+        XCTAssertEqual(withTier.serviceTier, "priority")
+    }
+
     func testTextFormatIsDecodable() throws {
         let sampleResponse = #"""
         { "type": "text" }

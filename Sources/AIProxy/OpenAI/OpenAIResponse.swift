@@ -79,6 +79,10 @@ nonisolated public struct OpenAIResponse: Decodable, Sendable {
     /// Configuration options for [reasoning models](https://platform.openai.com/docs/guides/reasoning).
     public let reasoning: Reasoning?
 
+    /// Processing tier reported by OpenAI for this response, which may differ from the requested tier.
+    /// The value is preserved as returned, including unfamiliar tier names.
+    public let serviceTier: String?
+
     /// The status of the response generation.
     /// One of `queued`, `in_progress`, `completed`, `failed`, `incomplete`, or `cancelled`.
     public let status: Status?
@@ -162,6 +166,7 @@ nonisolated public struct OpenAIResponse: Decodable, Sendable {
         self.parallelToolCalls = parallelToolCalls
         self.previousResponseId = previousResponseId
         self.reasoning = reasoning
+        self.serviceTier = nil
         self.status = status
         self.text = text
         self.temperature = temperature
@@ -171,6 +176,81 @@ nonisolated public struct OpenAIResponse: Decodable, Sendable {
         self.truncation = truncation
         self.usage = usage
         self.user = user
+    }
+
+    public init(
+        createdAt: Double?,
+        error: ResponseError?,
+        id: String?,
+        incompleteDetails: IncompleteDetails?,
+        instructions: Instructions?,
+        maxOutputTokens: Int?,
+        metadata: [String : String]?,
+        model: String?,
+        output: [ResponseOutputItem],
+        parallelToolCalls: Bool?,
+        previousResponseId: String?,
+        reasoning: Reasoning?,
+        status: Status?,
+        text: OpenAIResponse.TextConfiguration?,
+        temperature: Double?,
+        toolChoice: OpenAICreateResponseRequestBody.ToolChoice?,
+        tools: [OpenAICreateResponseRequestBody.Tool]?,
+        topP: Double?,
+        truncation: String?,
+        usage: ResponseUsage?,
+        user: String?,
+        serviceTier: String?
+    ) {
+        self.createdAt = createdAt
+        self.error = error
+        self.id = id
+        self.incompleteDetails = incompleteDetails
+        self.instructions = instructions
+        self.maxOutputTokens = maxOutputTokens
+        self.metadata = metadata
+        self.model = model
+        self.output = output
+        self.parallelToolCalls = parallelToolCalls
+        self.previousResponseId = previousResponseId
+        self.reasoning = reasoning
+        self.serviceTier = serviceTier
+        self.status = status
+        self.text = text
+        self.temperature = temperature
+        self.toolChoice = toolChoice
+        self.tools = tools
+        self.topP = topP
+        self.truncation = truncation
+        self.usage = usage
+        self.user = user
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        createdAt = try container.decodeIfPresent(Double.self, forKey: .createdAt)
+        error = try container.decodeIfPresent(ResponseError.self, forKey: .error)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        incompleteDetails = try container.decodeIfPresent(IncompleteDetails.self, forKey: .incompleteDetails)
+        instructions = try container.decodeIfPresent(Instructions.self, forKey: .instructions)
+        maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        output = try container.decode([ResponseOutputItem].self, forKey: .output)
+        parallelToolCalls = try container.decodeIfPresent(Bool.self, forKey: .parallelToolCalls)
+        previousResponseId = try container.decodeIfPresent(String.self, forKey: .previousResponseId)
+        reasoning = try container.decodeIfPresent(Reasoning.self, forKey: .reasoning)
+        // Before this field was exposed, non-string values were ignored by the decoder.
+        serviceTier = try? container.decodeIfPresent(String.self, forKey: .serviceTier)
+        status = try container.decodeIfPresent(Status.self, forKey: .status)
+        text = try container.decodeIfPresent(TextConfiguration.self, forKey: .text)
+        temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
+        toolChoice = try container.decodeIfPresent(OpenAICreateResponseRequestBody.ToolChoice.self, forKey: .toolChoice)
+        tools = try container.decodeIfPresent([OpenAICreateResponseRequestBody.Tool].self, forKey: .tools)
+        topP = try container.decodeIfPresent(Double.self, forKey: .topP)
+        truncation = try container.decodeIfPresent(String.self, forKey: .truncation)
+        usage = try container.decodeIfPresent(ResponseUsage.self, forKey: .usage)
+        user = try container.decodeIfPresent(String.self, forKey: .user)
     }
 
     /// Convenience property that aggregates all `outputText` items from the `output` list.
@@ -208,6 +288,7 @@ nonisolated public struct OpenAIResponse: Decodable, Sendable {
         case parallelToolCalls = "parallel_tool_calls"
         case previousResponseId = "previous_response_id"
         case reasoning
+        case serviceTier = "service_tier"
         case status
         case text
         case temperature

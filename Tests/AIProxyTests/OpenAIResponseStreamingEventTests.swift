@@ -19,6 +19,7 @@ class OpenAIResponseStreamingEventTests: XCTestCase {
         }
         XCTAssertEqual(responseCreated.sequenceNumber, 0)
         XCTAssertEqual(responseCreated.response.id, "resp_123")
+        XCTAssertEqual(responseCreated.response.serviceTier, "auto")
     }
     
     func testResponseInProgressEventIsDecodable() throws {
