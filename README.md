@@ -2322,12 +2322,11 @@ Once your files are added and processed, you can run this snippet on your `vecto
     }
 ```
 
-### How to use prompt templates with the OpenAI Responses API
+### Reusable prompts with the OpenAI Responses API
 
-- Follow OpenAI's guide for [creating a prompt](https://platform.openai.com/docs/guides/prompting#create-a-prompt).
-- Use the returned prompt ID in the snippet below
-- Fill in the prompt variables as part of the request body (for example, I used the variable 'topic' below)
+OpenAI has deprecated reusable prompt objects and scheduled them and `/v1/prompts` for shutdown on **November 30, 2026**. Existing SDK code can still encode prompt references, but applications should migrate before the shutdown. See the [reusable prompt migration guide](Documentation/OpenAI/ReusablePromptMigration.md) and [OpenAI's deprecation schedule](https://developers.openai.com/api/docs/deprecations).
 
+The example below shows the legacy request format for existing integrations. For new code, keep prompt content and variable substitution in your application and pass the resulting messages in `input` or `instructions`.
 
 ```swift
     import AIProxy
