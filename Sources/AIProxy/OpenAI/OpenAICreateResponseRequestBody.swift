@@ -145,6 +145,7 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         prompt: OpenAICreateResponseRequestBody.Prompt? = nil,
         reasoning: OpenAICreateResponseRequestBody.Reasoning? = nil,
         safetyIdentifier: String? = nil,
+        serviceTier: ServiceTier? = nil,
         store: Bool? = nil,
         stream: Bool? = nil,
         temperature: Double? = nil,
@@ -154,8 +155,7 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
         topP: Double? = nil,
         truncation: OpenAICreateResponseRequestBody.Truncation? = nil,
         user: String? = nil,
-        background: Bool? = nil,
-        serviceTier: ServiceTier? = nil
+        background: Bool? = nil
     ) {
         self.include = include
         self.input = input
