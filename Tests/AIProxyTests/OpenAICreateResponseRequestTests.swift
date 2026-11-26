@@ -250,6 +250,37 @@ final class OpenAICreateResponseRequestTests: XCTestCase {
         )
     }
 
+    func testReusablePromptEncodingRemainsCompatible() throws {
+        let request = OpenAICreateResponseRequestBody(
+            model: "example-model",
+            prompt: .init(id: "prompt_example", variables: ["name": .text("Ada")], version: "2")
+        )
+        let data = try JSONEncoder().encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let prompt = try XCTUnwrap(object["prompt"] as? [String: Any])
+        XCTAssertEqual(prompt["id"] as? String, "prompt_example")
+        XCTAssertEqual(prompt["version"] as? String, "2")
+        XCTAssertEqual(prompt["variables"] as? [String: String], ["name": "Ada"])
+        XCTAssertEqual(prompt.count, 3)
+    }
+
+    func testCodeManagedPromptEncoding() throws {
+        let request = OpenAICreateResponseRequestBody(
+            input: .items([
+                .message(role: .developer, content: .text("Answer clearly and concisely.")),
+                .message(role: .user, content: .text("Explain photosynthesis."))
+            ]),
+            instructions: "Use a short example.",
+            model: "example-model"
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        XCTAssertNil(object["prompt"])
+        XCTAssertEqual(object["instructions"] as? String, "Use a short example.")
+        let messages = try XCTUnwrap(object["input"] as? [[String: Any]])
+        XCTAssertEqual(messages.map { $0["role"] as? String }, ["developer", "user"])
+        XCTAssertEqual(messages.map { $0["content"] as? String }, ["Answer clearly and concisely.", "Explain photosynthesis."])
+    }
+
     func testResponseRequestWithVerbosity() throws {
         let requestBody = OpenAICreateResponseRequestBody(
             input: .text("Write a short story"),

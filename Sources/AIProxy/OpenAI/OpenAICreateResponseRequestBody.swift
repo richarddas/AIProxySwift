@@ -48,8 +48,10 @@ nonisolated public struct OpenAICreateResponseRequestBody: Encodable, Sendable {
     /// Learn more: https://platform.openai.com/docs/guides/conversation-state
     public let previousResponseId: String?
 
-    /// Reference to a prompt template and its variables
-    /// Learn more: https://platform.openai.com/docs/guides/text?api-mode=responses#reusable-prompts
+    /// Reference to a reusable prompt template and its variables.
+    /// OpenAI has deprecated reusable prompts, with shutdown scheduled for November 30, 2026.
+    /// Move prompt content into your application and send it in `input` or `instructions`.
+    /// See https://developers.openai.com/api/docs/deprecations
     public let prompt: Prompt?
 
     /// o-series models only
@@ -220,6 +222,9 @@ extension OpenAICreateResponseRequestBody {
         case disabled
     }
 
+    /// A reference to an OpenAI reusable prompt. This feature is deprecated by OpenAI.
+    /// Keep prompt content in application code and pass it in `input` or `instructions`.
+    /// See https://developers.openai.com/api/docs/guides/text#version-prompts-in-code
     nonisolated public struct Prompt: Encodable, Sendable {
         /// The unique identifier of the prompt template to use.
         public let id: String
@@ -230,6 +235,7 @@ extension OpenAICreateResponseRequestBody {
         /// Optional version of the prompt template.
         public let version: String?
 
+        @available(*, deprecated, message: "OpenAI is retiring reusable prompts. Move prompt content into application code and pass it in input or instructions.")
         public init(
             id: String,
             variables: [String : OpenAICreateResponseRequestBody.Variable]? = nil,
