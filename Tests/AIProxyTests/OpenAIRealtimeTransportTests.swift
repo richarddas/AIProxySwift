@@ -10,8 +10,16 @@ struct OpenAIRealtimeTransportTests {
         let server = try RealtimeLoopbackServer(upgrade: .deferred)
         defer { server.stop() }
         let client = makeNativeRealtimeClient(url: try await server.listening.value(),
-                                              configuration: .init(instructions: "fixture instructions", reasoning: .high, parallelToolCalls: true))
+                                              configuration: .init(
+                                                  instructions: "fixture instructions",
+                                                  outputModalities: [.audio],
+                                                  reasoning: .high,
+                                                  parallelToolCalls: true
+                                              ))
         defer { client.session.disconnect() }
+        let recorder = RealtimeMessageRecorder(expectedCount: 2)
+        let reader = recorder.consume(client.session.receiver)
+        defer { reader.cancel() }
         _ = try await server.requestReceived.value()
         let encoded = RealtimeTestSignal<Void>()
         let command = Task { @AIProxyActor in
@@ -24,6 +32,7 @@ struct OpenAIRealtimeTransportTests {
         #expect(config["type"] as? String == "session.update")
         let sessionConfig = try #require(config["session"] as? [String: Any])
         #expect(sessionConfig["instructions"] as? String == "fixture instructions")
+        #expect(sessionConfig["output_modalities"] as? [String] == ["audio"])
         #expect((sessionConfig["reasoning"] as? [String: Any])?["effort"] as? String == "high")
         #expect(sessionConfig["parallel_tool_calls"] as? Bool == true)
         let second = Data(try await server.secondClientText.value().utf8)
@@ -31,6 +40,8 @@ struct OpenAIRealtimeTransportTests {
         #expect(response["type"] as? String == "response.create")
         #expect(response["event_id"] as? String == "fixture_command")
         try await command.value
+        try await server.sendText([#"{"type":"session.created"}"#, #"{"type":"session.updated"}"#])
+        #expect(try await recorder.delivered.value().map(RealtimeMessageRecorder.label) == ["session.created", "session.updated"])
     }
 
     @Test(arguments: [false, true])

@@ -251,15 +251,15 @@ final class OpenAICreateResponseRequestTests: XCTestCase {
     }
 
     func testResponseRequestWithFastModeAndReasoning() throws {
-        let fastTiers: [(OpenAICreateResponseRequestBody.ServiceTier, String)] = [
-            (.fast, "fast"),
-            (.priority, "priority")
+        let requests: [(OpenAICreateResponseRequestBody.ServiceTier, String, OpenAICreateResponseRequestBody.Reasoning.Effort, String)] = [
+            (.fast, "fast", .noReasoning, "none"),
+            (.priority, "priority", .medium, "medium")
         ]
-        for (tier, wireValue) in fastTiers {
+        for (tier, wireTier, effort, wireEffort) in requests {
             let requestBody = OpenAICreateResponseRequestBody(
                 input: .text("Describe photosynthesis."),
                 model: "gpt-5.6-sol",
-                reasoning: .init(effort: .medium),
+                reasoning: .init(effort: effort),
                 serviceTier: tier
             )
 
@@ -269,9 +269,9 @@ final class OpenAICreateResponseRequestTests: XCTestCase {
                   "input" : "Describe photosynthesis.",
                   "model" : "gpt-5.6-sol",
                   "reasoning" : {
-                    "effort" : "medium"
+                    "effort" : "\(wireEffort)"
                   },
-                  "service_tier" : "\(wireValue)"
+                  "service_tier" : "\(wireTier)"
                 }
                 """,
                 try requestBody.serialize(pretty: true)

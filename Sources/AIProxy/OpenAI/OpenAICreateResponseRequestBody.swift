@@ -194,7 +194,7 @@ extension OpenAICreateResponseRequestBody {
         case scale
         /// Enables Fast mode, the same as `.fast`.
         case priority
-        /// Enables Fast mode. OpenAI reports the tier used as `priority` when served in Fast mode.
+        /// Enables Fast mode, the same as `.priority`.
         case fast
         case ultrafast
     }
