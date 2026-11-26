@@ -10,6 +10,17 @@ import XCTest
 
 final class OpenAIResponseObjectTests: XCTestCase {
 
+    func testResponsePreservesReportedServiceTier() throws {
+        let response = try OpenAIResponse.deserialize(from: #"{"output":[],"service_tier":"priority"}"#)
+        XCTAssertEqual(response.serviceTier, "priority")
+
+        let futureTier = try OpenAIResponse.deserialize(from: #"{"output":[],"service_tier":"future"}"#)
+        XCTAssertEqual(futureTier.serviceTier, "future")
+
+        let legacy = try OpenAIResponse.deserialize(from: #"{"output":[]}"#)
+        XCTAssertNil(legacy.serviceTier)
+    }
+
     func testTextFormatIsDecodable() throws {
         let sampleResponse = #"""
         { "type": "text" }

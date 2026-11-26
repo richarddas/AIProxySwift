@@ -10,6 +10,14 @@ import XCTest
 
 final class OpenAICreateResponseRequestTests: XCTestCase {
 
+    func testResponseRequestEncodesExplicitServiceTier() throws {
+        XCTAssertEqual(try OpenAICreateResponseRequestBody().serialize(), "{}")
+        XCTAssertEqual(try OpenAICreateResponseRequestBody(serviceTier: .default).serialize(),
+                       #"{"service_tier":"default"}"#)
+        XCTAssertEqual(try OpenAICreateResponseRequestBody(serviceTier: .fast).serialize(),
+                       #"{"service_tier":"fast"}"#)
+    }
+
     func testResponseRequestIsEncodableWithFileUse() throws {
         let requestBody = OpenAICreateResponseRequestBody(
             input: .items(
